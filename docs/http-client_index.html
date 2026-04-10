@@ -1,0 +1,61 @@
+<!DOCTYPE HTML>
+
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+        <link rel="stylesheet" href="../style.css">
+    </head>
+    <body>
+        <div class="content">
+            <a href="">
+                <div class="logo">
+                    <img src="" alt="Logo">
+                    <div class="index">
+                        <ul>
+                            <li>
+                                <a href="Client.html">
+                                    Client
+                                </a>
+                            </li>
+                            <li>
+                                <a href="Connection.html">
+                                    Connection
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+                <div>
+                    <h1>
+                        http-client
+                    </h1>
+                    <p>An HTTP client for Carp that supports both HTTP and HTTPS.</p>
+<p>Built on the <a href="https://github.com/carpentry-org/sockets">sockets</a>,
+<a href="https://github.com/carpentry-org/http">http</a>, and
+<a href="../tls/">tls</a> libraries. Uses a <code>Connection</code> union type to dispatch
+transparently over plain TCP or TLS-encrypted streams.</p>
+<h3>GET request</h3>
+<pre><code>(load &quot;http-client.carp&quot;)
+
+(defn main []
+  (match (Client.get &quot;https://example.com/&quot;)
+    (Result.Success r) (println* (Response.body &amp;r))
+    (Result.Error e) (IO.errorln &amp;e)))
+</code></pre>
+<h3>POST with JSON</h3>
+<pre><code>(match (Client.post &quot;https://httpbin.org/post&quot;
+         {@&quot;Content-Type&quot; [@&quot;application/json&quot;]}
+         &quot;{\&quot;key\&quot;: \&quot;value\&quot;}&quot;)
+  (Result.Success r) (println* (Response.body &amp;r))
+  (Result.Error e) (IO.errorln &amp;e))
+</code></pre>
+<h3>Requirements</h3>
+<p>Requires OpenSSL for HTTPS support (via the <code>tls</code> library).
+Plain HTTP works without OpenSSL.</p>
+
+                </div>
+            </a>
+        </div>
+    </body>
+</html>

@@ -1,0 +1,189 @@
+<!DOCTYPE HTML>
+
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+        <link rel="stylesheet" href="../style.css">
+    </head>
+    <body>
+        <div class="content">
+            <div class="logo">
+                <a href="">
+                    <img src="">
+                </a>
+                <div class="title">
+                    http-client
+                </div>
+                <div class="index">
+                    <ul>
+                        <li>
+                            <a href="Client.html">
+                                Client
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Connection.html">
+                                Connection
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="module">
+                <h1>
+                    Client
+                </h1>
+                <div class="module-description">
+                    <p>is an HTTP client that supports both HTTP and HTTPS.</p>
+<h2>Basic GET</h2>
+<pre><code>(match (Client.get &quot;https://example.com/&quot;)
+  (Result.Success r) (println* (Response.body &amp;r))
+  (Result.Error e) (IO.errorln &amp;e))
+</code></pre>
+<h2>POST with headers</h2>
+<pre><code>(match (Client.post &quot;https://api.example.com/data&quot;
+         {@&quot;Content-Type&quot; [@&quot;application/json&quot;]}
+         &quot;{\&quot;key\&quot;: 1}&quot;)
+  (Result.Success r) (println* (Response.body &amp;r))
+  (Result.Error e) (IO.errorln &amp;e))
+</code></pre>
+
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#del">
+                        <h3 id="del">
+                            del
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (del url)
+                    </pre>
+                    <p class="doc">
+                        <p>performs an HTTP DELETE request. Returns <code>(Result Response String)</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#get">
+                        <h3 id="get">
+                            get
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (get url)
+                    </pre>
+                    <p class="doc">
+                        <p>performs an HTTP GET request. Returns <code>(Result Response String)</code>.</p>
+<pre><code>(match (Client.get &quot;https://example.com/&quot;)
+  (Result.Success r) (println* (Response.body &amp;r))
+  (Result.Error e) (IO.errorln &amp;e))
+</code></pre>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#patch">
+                        <h3 id="patch">
+                            patch
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Map String (Array String)), (Ref String b)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (patch url headers body)
+                    </pre>
+                    <p class="doc">
+                        <p>performs an HTTP PATCH request with headers and body.
+Returns <code>(Result Response String)</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#post">
+                        <h3 id="post">
+                            post
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Map String (Array String)), (Ref String b)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (post url headers body)
+                    </pre>
+                    <p class="doc">
+                        <p>performs an HTTP POST request with headers and body.
+Returns <code>(Result Response String)</code>.</p>
+<pre><code>(match (Client.post &quot;https://api.example.com/&quot; {@&quot;Content-Type&quot; [@&quot;application/json&quot;]} &quot;{}&quot;)
+  (Result.Success r) (println* (Response.body &amp;r))
+  (Result.Error e) (IO.errorln &amp;e))
+</code></pre>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#put">
+                        <h3 id="put">
+                            put
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Map String (Array String)), (Ref String b)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (put url headers body)
+                    </pre>
+                    <p class="doc">
+                        <p>performs an HTTP PUT request with headers and body.
+Returns <code>(Result Response String)</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#request">
+                        <h3 id="request">
+                            request
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref String b), (Map String (Array String)), (Ref String c)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (request verb url headers body)
+                    </pre>
+                    <p class="doc">
+                        <p>sends an HTTP request to the given URL. Takes a verb, URL string,
+headers map, and body string. Parses the URL to determine scheme, host, port,
+and path. Returns <code>(Result Response String)</code>.</p>
+
+                    </p>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

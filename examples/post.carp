@@ -1,0 +1,15 @@
+(load "../http-client.carp")
+
+; POST JSON to httpbin.org and print the echoed response.
+;
+; Usage: carp -x examples/post.carp
+
+(defn main []
+  (let [body "{\"message\": \"hello from carp\"}"
+        headers {@"Content-Type" [@"application/json"]}]
+    (match (Client.post "https://httpbin.org/post" headers body)
+      (Result.Success r)
+        (do
+          (IO.println &(Int.str @(Response.code &r)))
+          (println* (Response.body &r)))
+      (Result.Error e) (IO.errorln &e))))

@@ -1,0 +1,40 @@
+(load "http-client.carp")
+
+(Project.config "title" "http-client")
+(Project.config "docs-directory" "./docs/")
+(Project.config "docs-logo" "")
+(Project.config "docs-url" "")
+(Project.config "docs-styling" "../style.css")
+(Project.config "docs-prelude" "An HTTP client for Carp that supports both HTTP and HTTPS.
+
+Built on the [sockets](https://github.com/carpentry-org/sockets),
+[http](https://github.com/carpentry-org/http), and
+[tls](../tls/) libraries. Uses a `Connection` union type to dispatch
+transparently over plain TCP or TLS-encrypted streams.
+
+### GET request
+```
+(load \"http-client.carp\")
+
+(defn main []
+  (match (Client.get \"https://example.com/\")
+    (Result.Success r) (println* (Response.body &r))
+    (Result.Error e) (IO.errorln &e)))
+```
+
+### POST with JSON
+```
+(match (Client.post \"https://httpbin.org/post\"
+         {@\"Content-Type\" [@\"application/json\"]}
+         \"{\\\"key\\\": \\\"value\\\"}\")
+  (Result.Success r) (println* (Response.body &r))
+  (Result.Error e) (IO.errorln &e))
+```
+
+### Requirements
+
+Requires OpenSSL for HTTPS support (via the `tls` library).
+Plain HTTP works without OpenSSL.")
+
+(save-docs Client Connection)
+(quit)

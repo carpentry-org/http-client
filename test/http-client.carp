@@ -1,0 +1,101 @@
+(load "Test.carp")
+(load "../http-client.carp")
+
+(use Test)
+
+(deftest test
+
+  ; =========================================================================
+  ; HTTPS GET
+  ; =========================================================================
+
+  (assert-true test
+    (Result.success? &(Client.get "https://example.com/"))
+    "HTTPS GET to example.com succeeds"
+  )
+
+  (assert-true test
+    (match (Client.get "https://example.com/")
+      (Result.Success r) (Response.ok? &r)
+      _ false)
+    "HTTPS GET to example.com returns 200"
+  )
+
+  (assert-true test
+    (match (Client.get "https://example.com/")
+      (Result.Success r) (String.contains-string? (Response.body &r) "<!doctype")
+      _ false)
+    "HTTPS GET returns HTML body"
+  )
+
+  ; =========================================================================
+  ; Response headers
+  ; =========================================================================
+
+  (assert-true test
+    (match (Client.get "https://example.com/")
+      (Result.Success r)
+        (match (Response.header &r "Content-Type")
+          (Maybe.Just ct) (String.starts-with? &ct "text/html")
+          _ false)
+      _ false)
+    "response contains Content-Type header"
+  )
+
+  ; =========================================================================
+  ; Error handling
+  ; =========================================================================
+
+  (assert-true test
+    (Result.error? &(Client.get "https://localhost:1/"))
+    "connection to invalid address returns error"
+  )
+
+  (assert-true test
+    (Result.error? &(Client.get "not-a-url"))
+    "invalid URL returns error"
+  )
+
+  ; =========================================================================
+  ; POST
+  ; =========================================================================
+
+  (assert-true test
+    (Result.success? &(Client.post "https://httpbin.org/post"
+                        {@"Content-Type" [@"application/json"]}
+                        "{\"test\": true}"))
+    "HTTPS POST to httpbin.org succeeds"
+  )
+
+  (assert-true test
+    (match (Client.post "https://httpbin.org/post"
+             {@"Content-Type" [@"application/json"]}
+             "{\"test\": true}")
+      (Result.Success r) (Response.ok? &r)
+      _ false)
+    "HTTPS POST returns 200"
+  )
+
+  ; =========================================================================
+  ; DELETE
+  ; =========================================================================
+
+  (assert-true test
+    (match (Client.del "https://httpbin.org/delete")
+      (Result.Success r) (Response.ok? &r)
+      _ false)
+    "HTTPS DELETE returns 200"
+  )
+
+  ; =========================================================================
+  ; Custom request
+  ; =========================================================================
+
+  (assert-true test
+    (match (Client.request "HEAD" "https://example.com/"
+             (the (Map String (Array String)) {}) "")
+      (Result.Success r) (Response.ok? &r)
+      _ false)
+    "custom HEAD request returns 200"
+  )
+)

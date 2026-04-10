@@ -1,0 +1,334 @@
+(load "git@github.com:carpentry-org/socket@0.1.0")
+(load "git@github.com:carpentry-org/http@0.1.0")
+(load "git@github.com:carpentry-org/tls@0.1.0")
+
+(relative-include "src/chunked.h")
+
+; The `poll` interface for pull-based streams. Inlined here so that
+; `ResponseStream` can implement it without an external dependency. If a
+; `streams` package is published later, this declaration is compatible.
+(definterface poll (λ [&a] (Maybe b)))
+
+; ===========================================================================
+; Connection type and operations
+; ===========================================================================
+
+(doc Connection "is a union of plain TCP and TLS-encrypted streams, allowing
+the HTTP client to dispatch send/read over either transport.")
+(deftype Connection
+  (Plain [TcpStream])
+  (Secure [TlsStream]))
+
+(defmodule Connection
+  (doc send "sends a string over the connection.")
+  (defn send [conn msg]
+    (match-ref conn
+      (Connection.Plain s) (TcpStream.send s msg)
+      (Connection.Secure s) (TlsStream.send s msg)))
+
+  (doc read "reads from the connection. Returns `(Result String String)`.")
+  (defn read [conn]
+    (the (Result String String)
+      (match-ref conn
+        (Connection.Plain s) (TcpStream.read s)
+        (Connection.Secure s) (TlsStream.read s))))
+
+  (doc close "closes the connection, consuming it.")
+  (defn close [conn]
+    (match conn
+      (Connection.Plain s) (TcpStream.close s)
+      (Connection.Secure s) (TlsStream.close s)))
+
+  (doc close! "closes the connection by reference.")
+  (defn close! [conn]
+    (match-ref conn
+      (Connection.Plain s) (TcpStream.close! s)
+      (Connection.Secure s) (TlsStream.close! s)))
+)
+
+; ===========================================================================
+; Chunked transfer-encoding decoder (C helper)
+; ===========================================================================
+
+(private chunked-decode-one-)
+(hidden chunked-decode-one-)
+(register chunked-decode-one- (Fn [(Ptr CChar) Int (Ptr String) (Ptr Int)] Int) "chunked_decode_one")
+
+; ===========================================================================
+; ResponseStream — pull-based chunked response reader
+; ===========================================================================
+
+(doc ResponseStream "is a pull-based stream for reading HTTP response bodies.
+Handles chunked transfer-encoding automatically. Implements the `poll` interface
+from the streams library.
+
+```
+(match (Client.request-stream \"POST\" url headers body)
+  (Result.Success stream)
+    (do
+      (while-do true
+        (match (ResponseStream.poll &stream)
+          (Maybe.Nothing) (break)
+          (Maybe.Just chunk) (IO.print &chunk)))
+      (ResponseStream.close stream))
+  (Result.Error e) (IO.errorln &e))
+```")
+(deftype ResponseStream [
+  conn Connection
+  buf String
+  decoded String
+  chunked Bool
+  done Bool
+  status-code Int
+  parsed-response Response
+])
+
+(defmodule ResponseStream
+
+  (hidden poll-raw)
+  (private poll-raw)
+  (defn poll-raw [s]
+    ; Return any leftover bytes from the header read first
+    (if (> (String.length (buf s)) 0)
+      (let-do [leftover @(buf s)]
+        (set-buf! s @"")
+        (Maybe.Just leftover))
+      (match (Connection.read (conn s))
+        (Result.Success chunk)
+          (if (= (String.length &chunk) 0)
+            (do (set-done! s true) (Maybe.Nothing))
+            (Maybe.Just chunk))
+        (Result.Error _)
+          (do (set-done! s true) (Maybe.Nothing)))))
+
+  (hidden poll-chunked)
+  (private poll-chunked)
+  (defn poll-chunked [s]
+    ; try to decode from existing buffer first, reading more if needed
+    (let-do [result (Maybe.Nothing)]
+      (while (Maybe.nothing? &result)
+        (let [raw (String.concat &[@(buf s) @(decoded s)])]
+          (let-do [out @""
+                   consumed 0
+                   rc (chunked-decode-one- (String.cstr &raw) (String.length &raw) (Pointer.address &out) (Pointer.address &consumed))]
+            (cond
+              (= rc 1) ; got a chunk
+                (do
+                  (set-buf! s (String.suffix &raw consumed))
+                  (set-decoded! s @"")
+                  (set! result (Maybe.Just out)))
+              (= rc -1) ; end of stream
+                (do
+                  (set-done! s true)
+                  (set! result (Maybe.Nothing))
+                  (break))
+              ; rc == 0: need more data
+              (match (Connection.read (conn s))
+                (Result.Success chunk)
+                  (if (= (String.length &chunk) 0)
+                    (do (set-done! s true) (break))
+                    (set-buf! s (String.concat &[@(buf s) chunk])))
+                (Result.Error _)
+                  (do (set-done! s true) (break)))))))
+      result))
+
+  (doc poll "returns the next chunk of decoded body data, or `Nothing` when
+the response is complete.")
+  (defn poll [s]
+    (if @(done s)
+      (Maybe.Nothing)
+      (if @(chunked s)
+        (poll-chunked s)
+        (poll-raw s))))
+  (implements poll ResponseStream.poll)
+
+  (doc close "closes the underlying connection.")
+  (defn close [s]
+    (Connection.close! (conn &s)))
+
+  (doc close! "closes the underlying connection by reference.")
+  (defn close! [s]
+    (Connection.close! (conn s)))
+)
+
+; ===========================================================================
+; Client module
+; ===========================================================================
+
+(doc Client "is an HTTP client that supports both HTTP and HTTPS.
+
+## Basic GET
+```
+(match (Client.get \"https://example.com/\")
+  (Result.Success r) (println* (Response.body &r))
+  (Result.Error e) (IO.errorln &e))
+```
+
+## POST with headers
+```
+(match (Client.post \"https://api.example.com/data\"
+         {@\"Content-Type\" [@\"application/json\"]}
+         \"{\\\"key\\\": 1}\")
+  (Result.Success r) (println* (Response.body &r))
+  (Result.Error e) (IO.errorln &e))
+```
+
+## Streaming
+```
+(match (Client.request-stream \"POST\" url headers body)
+  (Result.Success stream)
+    (do
+      (while-do true
+        (match (ResponseStream.poll &stream)
+          (Maybe.Nothing) (break)
+          (Maybe.Just chunk) (IO.print &chunk)))
+      (ResponseStream.close stream))
+  (Result.Error e) (IO.errorln &e))
+```")
+(defmodule Client
+
+  (hidden default-port)
+  (private default-port)
+  (defn default-port [scheme]
+    (cond
+      (= scheme "https") 443
+      (= scheme "http") 80
+      80))
+
+  (hidden connect)
+  (private connect)
+  (defn connect [scheme host port]
+    (if (= scheme "https")
+      (match (TlsStream.connect host port)
+        (Result.Success s) (Result.Success (Connection.Secure s))
+        (Result.Error e) (Result.Error e))
+      (match (TcpStream.connect host port)
+        (Result.Success s) (Result.Success (Connection.Plain s))
+        (Result.Error e) (Result.Error e))))
+
+  (hidden build-and-send)
+  (private build-and-send)
+  (defn build-and-send [verb url headers body]
+    (match (URI.parse url)
+      (Result.Error e) (Result.Error @&e)
+      (Result.Success uri)
+        (let [scheme (Maybe.from @(URI.scheme &uri) @"http")
+              host (Maybe.from @(URI.host &uri) @"")
+              port (Maybe.from @(URI.port &uri) (default-port &scheme))
+              path (URI.full-path &uri)]
+          (if (= (String.length &host) 0)
+            (Result.Error @"missing host in URL")
+            (match (connect &scheme &host port)
+              (Result.Error e) (Result.Error e)
+              (Result.Success conn)
+                (let [host-vals [@&host]
+                      conn-vals [@"close"]
+                      with-host (Map.put headers &@"Host" &host-vals)
+                      full-headers (Map.put with-host &@"Connection" &conn-vals)
+                      req (Request.request @verb uri [] full-headers @body)]
+                  (do
+                    (ignore (Connection.send &conn &(Request.str &req)))
+                    (Result.Success conn))))))))
+
+  (hidden read-headers)
+  (private read-headers)
+  (doc read-headers "reads from a connection until HTTP headers are complete.
+Returns the raw header text and any leftover body data.")
+  (defn read-headers [conn]
+    (let-do [acc @""
+             found false]
+      (while (not found)
+        (match (Connection.read conn)
+          (Result.Success chunk)
+            (if (= (String.length &chunk) 0)
+              (set! found true)
+              (do
+                (set! acc (String.concat &[acc chunk]))
+                (when (String.contains-string? &acc "\r\n\r\n")
+                  (set! found true))))
+          (Result.Error _) (set! found true)))
+      (let [split-pos (String.index-of-string &acc "\r\n\r\n")]
+        (if (< split-pos 0)
+          (Result.Error @"incomplete HTTP headers")
+          (let [header-end (+ split-pos 4)
+                header-text (String.prefix &acc header-end)
+                body-start (String.suffix &acc header-end)]
+            (match (Response.parse &header-text)
+              (Result.Error e) (Result.Error e)
+              (Result.Success resp)
+                (Result.Success (Pair.init resp body-start))))))))
+
+  (doc request-stream "sends an HTTP request and returns a `ResponseStream` for
+reading the response body incrementally. Use `ResponseStream.poll` to read chunks.
+
+The stream handles chunked transfer-encoding automatically. Check `ResponseStream.status-code`
+to verify the request succeeded before polling.")
+  (defn request-stream [verb url headers body]
+    (match (build-and-send verb url headers body)
+      (Result.Error e) (Result.Error e)
+      (Result.Success conn)
+        (match (read-headers &conn)
+          (Result.Error e) (do (Connection.close conn) (Result.Error e))
+          (Result.Success pair)
+            (let [resp @(Pair.a &pair)
+                  leftover @(Pair.b &pair)
+                  is-chunked (match (Response.header &resp "Transfer-Encoding")
+                               (Maybe.Just te) (String.contains-string? &te "chunked")
+                               _ false)
+                  code @(Response.code &resp)]
+              (Result.Success (ResponseStream.init conn leftover @"" is-chunked false code resp))))))
+
+  (hidden drain-stream)
+  (private drain-stream)
+  (defn drain-stream [s]
+    (let-do [body @""
+             done false]
+      (while (not done)
+        (match (ResponseStream.poll s)
+          (Maybe.Nothing) (set! done true)
+          (Maybe.Just chunk) (set! body (String.concat &[body chunk]))))
+      body))
+
+  (doc request "sends an HTTP request to the given URL. Returns `(Result Response String)`.
+
+Internally uses `request-stream` and drains the response body, transparently
+handling chunked transfer-encoding.")
+  (defn request [verb url headers body]
+    (match (request-stream verb url headers body)
+      (Result.Error e) (Result.Error e)
+      (Result.Success stream)
+        (let [decoded-body (drain-stream &stream)
+              base-resp @(ResponseStream.parsed-response &stream)]
+          (do
+            (ResponseStream.close stream)
+            (Result.Success (Response.set-body base-resp decoded-body))))))
+
+  (doc get "performs an HTTP GET request. Returns `(Result Response String)`.")
+  (defn get [url]
+    (request "GET" url (the (Map String (Array String)) {}) ""))
+
+  (doc post "performs an HTTP POST request with headers and body.
+Returns `(Result Response String)`.")
+  (defn post [url headers body]
+    (let [cl-vals [(Int.str (String.length body))]
+          hdrs (Map.put headers &@"Content-Length" &cl-vals)]
+      (request "POST" url hdrs body)))
+
+  (doc put "performs an HTTP PUT request with headers and body.
+Returns `(Result Response String)`.")
+  (defn put [url headers body]
+    (let [cl-vals [(Int.str (String.length body))]
+          hdrs (Map.put headers &@"Content-Length" &cl-vals)]
+      (request "PUT" url hdrs body)))
+
+  (doc del "performs an HTTP DELETE request. Returns `(Result Response String)`.")
+  (defn del [url]
+    (request "DELETE" url (the (Map String (Array String)) {}) ""))
+
+  (doc patch "performs an HTTP PATCH request with headers and body.
+Returns `(Result Response String)`.")
+  (defn patch [url headers body]
+    (let [cl-vals [(Int.str (String.length body))]
+          hdrs (Map.put headers &@"Content-Length" &cl-vals)]
+      (request "PATCH" url hdrs body)))
+)

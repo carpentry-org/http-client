@@ -1,0 +1,13 @@
+(load "../http-client.carp")
+
+; Fetch a page over HTTPS and print the response body.
+;
+; Usage: carp -x examples/get.carp
+
+(defn main []
+  (match (Client.get "https://example.com/")
+    (Result.Success r)
+      (do
+        (IO.println &(Int.str @(Response.code &r)))
+        (println* (Response.body &r)))
+    (Result.Error e) (IO.errorln &e)))
