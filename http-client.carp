@@ -15,9 +15,7 @@
 
 (doc Connection "is a union of plain TCP and TLS-encrypted streams, allowing
 the HTTP client to dispatch send/read over either transport.")
-(deftype Connection
-  (Plain [TcpStream])
-  (Secure [TlsStream]))
+(deftype Connection (Plain [TcpStream]) (Secure [TlsStream]))
 
 (defmodule Connection
   (doc send "sends a string over the connection.")
@@ -28,7 +26,8 @@ the HTTP client to dispatch send/read over either transport.")
 
   (doc read "reads from the connection. Returns `(Result String String)`.")
   (defn read [conn]
-    (the (Result String String)
+    (the
+      (Result String String)
       (match-ref conn
         (Connection.Plain s) (TcpStream.read s)
         (Connection.Secure s) (TlsStream.read s))))
@@ -43,8 +42,7 @@ the HTTP client to dispatch send/read over either transport.")
   (defn close! [conn]
     (match-ref conn
       (Connection.Plain s) (TcpStream.close! s)
-      (Connection.Secure s) (TlsStream.close! s)))
-)
+      (Connection.Secure s) (TlsStream.close! s))))
 
 ; ===========================================================================
 ; Chunked transfer-encoding decoder (C helper)
@@ -52,7 +50,9 @@ the HTTP client to dispatch send/read over either transport.")
 
 (private chunked-decode-one-)
 (hidden chunked-decode-one-)
-(register chunked-decode-one- (Fn [(Ptr CChar) Int (Ptr String) (Ptr Int)] Int) "chunked_decode_one")
+(register chunked-decode-one-
+  (Fn [(Ptr CChar) Int (Ptr String) (Ptr Int)] Int)
+  "chunked_decode_one")
 
 ; ===========================================================================
 ; ResponseStream — pull-based chunked response reader
@@ -73,33 +73,28 @@ from the streams library.
       (ResponseStream.close stream))
   (Result.Error e) (IO.errorln &e))
 ```")
-(deftype ResponseStream [
-  conn Connection
-  buf String
-  decoded String
-  chunked Bool
-  done Bool
-  status-code Int
-  parsed-response Response
-])
+(deftype ResponseStream
+  [conn Connection
+   buf String
+   decoded String
+   chunked Bool
+   done Bool
+   status-code Int
+   parsed-response Response])
 
 (defmodule ResponseStream
-
   (hidden poll-raw)
   (private poll-raw)
   (defn poll-raw [s]
     ; Return any leftover bytes from the header read first
     (if (> (String.length (buf s)) 0)
-      (let-do [leftover @(buf s)]
-        (set-buf! s @"")
-        (Maybe.Just leftover))
+      (let-do [leftover @(buf s)] (set-buf! s @"") (Maybe.Just leftover))
       (match (Connection.read (conn s))
         (Result.Success chunk)
           (if (= (String.length &chunk) 0)
             (do (set-done! s true) (Maybe.Nothing))
             (Maybe.Just chunk))
-        (Result.Error _)
-          (do (set-done! s true) (Maybe.Nothing)))))
+        (Result.Error _) (do (set-done! s true) (Maybe.Nothing)))))
 
   (hidden poll-chunked)
   (private poll-chunked)
@@ -110,26 +105,28 @@ from the streams library.
         (let [raw (String.concat &[@(buf s) @(decoded s)])]
           (let-do [out @""
                    consumed 0
-                   rc (chunked-decode-one- (String.cstr &raw) (String.length &raw) (Pointer.address &out) (Pointer.address &consumed))]
+                   rc (chunked-decode-one-
+                     (String.cstr &raw)
+                     (String.length &raw)
+                     (Pointer.address &out)
+                     (Pointer.address &consumed))]
             (cond
-              (= rc 1) ; got a chunk
-                (do
-                  (set-buf! s (String.suffix &raw consumed))
-                  (set-decoded! s @"")
-                  (set! result (Maybe.Just out)))
-              (= rc -1) ; end of stream
-                (do
-                  (set-done! s true)
-                  (set! result (Maybe.Nothing))
-                  (break))
+              (= rc 1)
+              ; got a chunk
+              (do
+                (set-buf! s (String.suffix &raw consumed))
+                (set-decoded! s @"")
+                (set! result (Maybe.Just out)))
+              (= rc -1)
+              ; end of stream
+              (do (set-done! s true) (set! result (Maybe.Nothing)) (break))
               ; rc == 0: need more data
               (match (Connection.read (conn s))
                 (Result.Success chunk)
                   (if (= (String.length &chunk) 0)
                     (do (set-done! s true) (break))
                     (set-buf! s (String.concat &[@(buf s) chunk])))
-                (Result.Error _)
-                  (do (set-done! s true) (break)))))))
+                (Result.Error _) (do (set-done! s true) (break)))))))
       result))
 
   (doc poll "returns the next chunk of decoded body data, or `Nothing` when
@@ -137,19 +134,14 @@ the response is complete.")
   (defn poll [s]
     (if @(done s)
       (Maybe.Nothing)
-      (if @(chunked s)
-        (poll-chunked s)
-        (poll-raw s))))
+      (if @(chunked s) (poll-chunked s) (poll-raw s))))
   (implements poll ResponseStream.poll)
 
   (doc close "closes the underlying connection.")
-  (defn close [s]
-    (Connection.close! (conn &s)))
+  (defn close [s] (Connection.close! (conn &s)))
 
   (doc close! "closes the underlying connection by reference.")
-  (defn close! [s]
-    (Connection.close! (conn s)))
-)
+  (defn close! [s] (Connection.close! (conn s))))
 
 ; ===========================================================================
 ; Client module
@@ -186,14 +178,10 @@ the response is complete.")
   (Result.Error e) (IO.errorln &e))
 ```")
 (defmodule Client
-
   (hidden default-port)
   (private default-port)
   (defn default-port [scheme]
-    (cond
-      (= scheme "https") 443
-      (= scheme "http") 80
-      80))
+    (cond (= scheme "https") 443 (= scheme "http") 80 80))
 
   (hidden connect)
   (private connect)
@@ -221,14 +209,16 @@ the response is complete.")
             (match (connect &scheme &host port)
               (Result.Error e) (Result.Error e)
               (Result.Success conn)
-                (let [host-vals [@&host]
-                      conn-vals [@"close"]
-                      with-host (Map.put headers &@"Host" &host-vals)
-                      full-headers (Map.put with-host &@"Connection" &conn-vals)
-                      req (Request.request @verb uri [] full-headers @body)]
-                  (do
-                    (ignore (Connection.send &conn &(Request.str &req)))
-                    (Result.Success conn))))))))
+                (let-do [host-vals [@&host]
+                         conn-vals [@"close"]
+                         with-host (Map.put headers &@"Host" &host-vals)
+                         full-headers (Map.put
+                           with-host
+                           &@"Connection"
+                           &conn-vals)
+                         req (Request.request @verb uri [] full-headers @body)]
+                  (ignore (Connection.send &conn &(Request.str &req)))
+                  (Result.Success conn)))))))
 
   (hidden read-headers)
   (private read-headers)
@@ -255,8 +245,7 @@ Returns the raw header text and any leftover body data.")
                 body-start (String.suffix &acc header-end)]
             (match (Response.parse &header-text)
               (Result.Error e) (Result.Error e)
-              (Result.Success resp)
-                (Result.Success (Pair.init resp body-start))))))))
+              (Result.Success resp) (Result.Success (Pair.init resp body-start))))))))
 
   (doc request-stream "sends an HTTP request and returns a `ResponseStream` for
 reading the response body incrementally. Use `ResponseStream.poll` to read chunks.
@@ -273,10 +262,18 @@ to verify the request succeeded before polling.")
             (let [resp @(Pair.a &pair)
                   leftover @(Pair.b &pair)
                   is-chunked (match (Response.header &resp "Transfer-Encoding")
-                               (Maybe.Just te) (String.contains-string? &te "chunked")
-                               _ false)
+                    (Maybe.Just te) (String.contains-string? &te "chunked")
+                    _ false)
                   code @(Response.code &resp)]
-              (Result.Success (ResponseStream.init conn leftover @"" is-chunked false code resp))))))
+              (Result.Success
+                (ResponseStream.init
+                  conn
+                  leftover
+                  @""
+                  is-chunked
+                  false
+                  code
+                  resp))))))
 
   (hidden drain-stream)
   (private drain-stream)
@@ -289,7 +286,8 @@ to verify the request succeeded before polling.")
           (Maybe.Just chunk) (set! body (String.concat &[body chunk]))))
       body))
 
-  (doc request "sends an HTTP request to the given URL. Returns `(Result Response String)`.
+  (doc request
+    "sends an HTTP request to the given URL. Returns `(Result Response String)`.
 
 Internally uses `request-stream` and drains the response body, transparently
 handling chunked transfer-encoding.")
@@ -297,15 +295,13 @@ handling chunked transfer-encoding.")
     (match (request-stream verb url headers body)
       (Result.Error e) (Result.Error e)
       (Result.Success stream)
-        (let [decoded-body (drain-stream &stream)
-              base-resp @(ResponseStream.parsed-response &stream)]
-          (do
-            (ResponseStream.close stream)
-            (Result.Success (Response.set-body base-resp decoded-body))))))
+        (let-do [decoded-body (drain-stream &stream)
+                 base-resp @(ResponseStream.parsed-response &stream)]
+          (ResponseStream.close stream)
+          (Result.Success (Response.set-body base-resp decoded-body)))))
 
   (doc get "performs an HTTP GET request. Returns `(Result Response String)`.")
-  (defn get [url]
-    (request "GET" url (the (Map String (Array String)) {}) ""))
+  (defn get [url] (request "GET" url (the (Map String (Array String)) {}) ""))
 
   (doc post "performs an HTTP POST request with headers and body.
 Returns `(Result Response String)`.")
@@ -321,14 +317,13 @@ Returns `(Result Response String)`.")
           hdrs (Map.put headers &@"Content-Length" &cl-vals)]
       (request "PUT" url hdrs body)))
 
-  (doc del "performs an HTTP DELETE request. Returns `(Result Response String)`.")
-  (defn del [url]
-    (request "DELETE" url (the (Map String (Array String)) {}) ""))
+  (doc del
+    "performs an HTTP DELETE request. Returns `(Result Response String)`.")
+  (defn del [url] (request "DELETE" url (the (Map String (Array String)) {}) ""))
 
   (doc patch "performs an HTTP PATCH request with headers and body.
 Returns `(Result Response String)`.")
   (defn patch [url headers body]
     (let [cl-vals [(Int.str (String.length body))]
           hdrs (Map.put headers &@"Content-Length" &cl-vals)]
-      (request "PATCH" url hdrs body)))
-)
+      (request "PATCH" url hdrs body))))
