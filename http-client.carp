@@ -107,9 +107,9 @@ from the streams library.
           (let-do [out @""
                    consumed 0
                    rc (chunked-decode-one- (String.cstr &raw)
-                     (String.length &raw)
-                     (Pointer.address &out)
-                     (Pointer.address &consumed))]
+                                           (String.length &raw)
+                                           (Pointer.address &out)
+                                           (Pointer.address &consumed))]
             (cond
               (= rc 1)
               ; got a chunk
@@ -210,10 +210,12 @@ the response is complete.")
               (Result.Error e) (Result.Error e)
               (Result.Success conn)
                 (let-do [host-vals [@&host]
-                    conn-vals [@"close"]
-                    with-host (Map.put headers &@"Host" &host-vals)
-                    full-headers (Map.put with-host &@"Connection" &conn-vals)
-                    req (Request.request @verb uri [] full-headers @body)]
+                         conn-vals [@"close"]
+                         with-host (Map.put headers &@"Host" &host-vals)
+                         full-headers (Map.put with-host
+                                               &@"Connection"
+                                               &conn-vals)
+                         req (Request.request @verb uri [] full-headers @body)]
                   (ignore (Connection.send &conn &(Request.str &req)))
                   (Result.Success conn)))))))
 
@@ -262,13 +264,14 @@ to verify the request succeeded before polling.")
                     (Maybe.Just te) (String.contains-string? &te "chunked")
                     _ false)
                   code @(Response.code &resp)]
-              (Result.Success (ResponseStream.init conn
-                  leftover
-                  @""
-                  is-chunked
-                  false
-                  code
-                  resp))))))
+              (Result.Success
+                (ResponseStream.init conn
+                                     leftover
+                                     @""
+                                     is-chunked
+                                     false
+                                     code
+                                     resp))))))
 
   (hidden drain-stream)
   (private drain-stream)

@@ -55,15 +55,16 @@
   ; =========================================================================
 
   (assert-true test
-    (Result.success? &(Client.post "https://httpbin.org/post"
-        {@"Content-Type" [@"application/json"]}
-        "{\"test\": true}"))
+    (Result.success?
+      &(Client.post "https://httpbin.org/post"
+                    {@"Content-Type" [@"application/json"]}
+                    "{\"test\": true}"))
     "HTTPS POST to httpbin.org succeeds")
 
   (assert-true test
     (match (Client.post "https://httpbin.org/post"
-        {@"Content-Type" [@"application/json"]}
-        "{\"test\": true}")
+                        {@"Content-Type" [@"application/json"]}
+                        "{\"test\": true}")
       (Result.Success r) (Response.ok? &r)
       _ false)
     "HTTPS POST returns 200")
@@ -84,9 +85,9 @@
 
   (assert-true test
     (match (Client.request "HEAD"
-        "https://example.com/"
-        (the (Map String (Array String)) {})
-        "")
+                           "https://example.com/"
+                           (the (Map String (Array String)) {})
+                           "")
       (Result.Success r) (Response.ok? &r)
       _ false)
     "custom HEAD request returns 200"))
