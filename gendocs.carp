@@ -5,9 +5,8 @@
 (Project.config "docs-logo" "")
 (Project.config "docs-url" "")
 (Project.config "docs-styling" "../style.css")
-(Project.config
-  "docs-prelude"
-  "An HTTP client for Carp that supports both HTTP and HTTPS.
+(Project.config "docs-prelude"
+                "An HTTP client for Carp that supports both HTTP and HTTPS.
 
 Built on the [sockets](https://github.com/carpentry-org/sockets),
 [http](https://github.com/carpentry-org/http), and

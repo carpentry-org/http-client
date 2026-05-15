@@ -15,7 +15,9 @@
 
 (doc Connection "is a union of plain TCP and TLS-encrypted streams, allowing
 the HTTP client to dispatch send/read over either transport.")
-(deftype Connection (Plain [TcpStream]) (Secure [TlsStream]))
+(deftype Connection
+  (Plain [TcpStream])
+  (Secure [TlsStream]))
 
 (defmodule Connection
   (doc send "sends a string over the connection.")
@@ -26,11 +28,10 @@ the HTTP client to dispatch send/read over either transport.")
 
   (doc read "reads from the connection. Returns `(Result String String)`.")
   (defn read [conn]
-    (the
-      (Result String String)
-      (match-ref conn
-        (Connection.Plain s) (TcpStream.read s)
-        (Connection.Secure s) (TlsStream.read s))))
+    (the (Result String String)
+         (match-ref conn
+           (Connection.Plain s) (TcpStream.read s)
+           (Connection.Secure s) (TlsStream.read s))))
 
   (doc close "closes the connection, consuming it.")
   (defn close [conn]
@@ -105,8 +106,7 @@ from the streams library.
         (let [raw (String.concat &[@(buf s) @(decoded s)])]
           (let-do [out @""
                    consumed 0
-                   rc (chunked-decode-one-
-                     (String.cstr &raw)
+                   rc (chunked-decode-one- (String.cstr &raw)
                      (String.length &raw)
                      (Pointer.address &out)
                      (Pointer.address &consumed))]
@@ -210,13 +210,10 @@ the response is complete.")
               (Result.Error e) (Result.Error e)
               (Result.Success conn)
                 (let-do [host-vals [@&host]
-                         conn-vals [@"close"]
-                         with-host (Map.put headers &@"Host" &host-vals)
-                         full-headers (Map.put
-                           with-host
-                           &@"Connection"
-                           &conn-vals)
-                         req (Request.request @verb uri [] full-headers @body)]
+                    conn-vals [@"close"]
+                    with-host (Map.put headers &@"Host" &host-vals)
+                    full-headers (Map.put with-host &@"Connection" &conn-vals)
+                    req (Request.request @verb uri [] full-headers @body)]
                   (ignore (Connection.send &conn &(Request.str &req)))
                   (Result.Success conn)))))))
 
@@ -265,9 +262,7 @@ to verify the request succeeded before polling.")
                     (Maybe.Just te) (String.contains-string? &te "chunked")
                     _ false)
                   code @(Response.code &resp)]
-              (Result.Success
-                (ResponseStream.init
-                  conn
+              (Result.Success (ResponseStream.init conn
                   leftover
                   @""
                   is-chunked
