@@ -1,0 +1,51 @@
+(load "git@github.com:carpentry-org/strbuf@0.1.0")
+
+(relative-include "bench_time.h")
+(register elapsed-ns (Fn [] Double) "bench_elapsed_ns")
+
+; Accumulate `iters` copies of `chunk` via String.concat (old pattern).
+; Each iteration copies the full accumulated string — O(n²) total.
+(defn concat-accumulate [chunk iters]
+  (let-do [acc @""]
+    (for [i 0 iters] (set! acc (String.concat &[acc @chunk])))
+    (String.length &acc)))
+
+; Accumulate via StringBuf.append (new pattern).
+; Grows geometrically — amortized O(n) total.
+(defn strbuf-accumulate [chunk iters]
+  (let-do [sb (StringBuf.create)]
+    (for [i 0 iters] (StringBuf.append-str &sb chunk))
+    (let-do [len (StringBuf.length &sb)] (StringBuf.delete sb) len)))
+
+(defn run-trial [label chunk-size iters]
+  (let-do [chunk (String.allocate chunk-size \x)
+           t0 (elapsed-ns)
+           n1 (concat-accumulate &chunk iters)
+           t1 (elapsed-ns)
+           n2 (strbuf-accumulate &chunk iters)
+           t2 (elapsed-ns)
+           concat-ms (/ (Double.- t1 t0) 1000000.0)
+           strbuf-ms (/ (Double.- t2 t1) 1000000.0)
+           speedup (if (> strbuf-ms 0.001) (/ concat-ms strbuf-ms) 0.0)]
+    (println* label
+              ": concat "
+              concat-ms
+              "ms  strbuf "
+              strbuf-ms
+              "ms  ("
+              speedup
+              "x)")))
+
+(defn main []
+  (do
+    (println* "")
+    (println* "String.concat loop vs StringBuf.append — 1KB chunks")
+    (println* "====================================================")
+    (println* "Each trial appends N copies of a 1024-byte chunk.")
+    (println* "concat copies the full buffer on every iteration (quadratic);")
+    (println* "StringBuf grows geometrically (linear).")
+    (println* "")
+    (run-trial "  100 iters" 1024 100)
+    (run-trial "  500 iters" 1024 500)
+    (run-trial " 1000 iters" 1024 1000)
+    (run-trial " 2000 iters" 1024 2000)))
