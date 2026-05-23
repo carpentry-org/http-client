@@ -1,0 +1,111 @@
+(load "Bench.carp")
+(load "git@github.com:carpentry-org/strbuf@0.1.0")
+
+; Build an array of n string chunks of the given size.
+(defn make-chunks [n size]
+  (let-do [chunks []]
+    (for [i 0 n]
+      (set! chunks (Array.push-back chunks (String.allocate size \x))))
+    chunks))
+
+; Build header chunks: same as make-chunks but the last chunk ends
+; with \r\n\r\n (the HTTP header boundary that read-headers scans for).
+(defn make-header-chunks [n size]
+  (let-do [chunks []]
+    (for [i 0 (- n 1)]
+      (set! chunks (Array.push-back chunks (String.allocate size \h))))
+    (set! chunks
+          (Array.push-back chunks
+                           (String.concat
+                             &[(String.allocate (- size 4) \h) @"\r\n\r\n"])))
+    chunks))
+
+; ----------------------------------------------------------------
+; read-headers accumulation pattern
+;
+; Client.read-headers reads from a Connection in a loop, accumulating
+; data until the \r\n\r\n header boundary is found. These functions
+; simulate that loop with pre-built chunks.
+; ----------------------------------------------------------------
+
+; Before this PR: String.concat in a loop (quadratic)
+(defn read-headers-concat [chunks]
+  (let-do [acc @""
+           found false
+           i 0]
+    (while-do (and (not found) (< i (Array.length chunks)))
+      (set! acc (String.concat &[acc @(Array.unsafe-nth chunks i)]))
+      (when (String.contains-string? &acc "\r\n\r\n") (set! found true))
+      (set! i (+ i 1)))
+    (ignore acc)))
+
+; After this PR: StringBuf with non-destructive peek (linear growth)
+(defn read-headers-strbuf [chunks]
+  (let-do [sb (StringBuf.create)
+           found false
+           i 0]
+    (while-do (and (not found) (< i (Array.length chunks)))
+      (StringBuf.append-str &sb (Array.unsafe-nth chunks i))
+      (let [acc (StringBuf.str &sb)]
+        (when (String.contains-string? &acc "\r\n\r\n") (set! found true)))
+      (set! i (+ i 1)))
+    (StringBuf.delete sb)))
+
+; ----------------------------------------------------------------
+; drain-stream accumulation pattern
+;
+; Client.drain-stream reads all chunks from a ResponseStream and
+; concatenates them into the final response body. This is where the
+; quadratic-to-linear improvement is most significant.
+; ----------------------------------------------------------------
+
+; Before this PR: String.concat in a loop (quadratic)
+(defn drain-concat [chunks]
+  (let-do [acc @""]
+    (for [i 0 (Array.length chunks)]
+      (set! acc (String.concat &[acc @(Array.unsafe-nth chunks i)])))
+    (ignore acc)))
+
+; After this PR: StringBuf accumulation (linear)
+(defn drain-strbuf [chunks]
+  (let-do [sb (StringBuf.create)]
+    (for [i 0 (Array.length chunks)]
+      (StringBuf.append-str &sb (Array.unsafe-nth chunks i)))
+    (StringBuf.delete sb)))
+
+; ----------------------------------------------------------------
+
+(defn main []
+  (do
+    (println* "")
+    (println* "http-client StringBuf optimization benchmark")
+    (println* "=============================================")
+    (println* "Simulates the accumulation loops in Client.read-headers and")
+    (println* "Client.drain-stream with realistic HTTP payload sizes.")
+    (println* "Chunk size: 4KB (typical TCP socket read).")
+    (println* "")
+    (println* "--- read-headers: 16KB headers, 4 chunks ---")
+    (println* "  concat (before):")
+    (let [d (make-header-chunks 4 4096)]
+      (Bench.bench (fn [] (read-headers-concat &d))))
+    (println* "  StringBuf (after):")
+    (let [d (make-header-chunks 4 4096)]
+      (Bench.bench (fn [] (read-headers-strbuf &d))))
+    (println* "")
+    (println* "--- drain-stream: 16KB body, 4 chunks ---")
+    (println* "  concat (before):")
+    (let [d (make-chunks 4 4096)] (Bench.bench (fn [] (drain-concat &d))))
+    (println* "  StringBuf (after):")
+    (let [d (make-chunks 4 4096)] (Bench.bench (fn [] (drain-strbuf &d))))
+    (println* "")
+    (println* "--- drain-stream: 64KB body, 16 chunks ---")
+    (println* "  concat (before):")
+    (let [d (make-chunks 16 4096)] (Bench.bench (fn [] (drain-concat &d))))
+    (println* "  StringBuf (after):")
+    (let [d (make-chunks 16 4096)] (Bench.bench (fn [] (drain-strbuf &d))))
+    (println* "")
+    (println* "--- drain-stream: 256KB body, 64 chunks ---")
+    (println* "  concat (before):")
+    (let [d (make-chunks 64 4096)] (Bench.bench (fn [] (drain-concat &d))))
+    (println* "  StringBuf (after):")
+    (let [d (make-chunks 64 4096)] (Bench.bench (fn [] (drain-strbuf &d))))))
