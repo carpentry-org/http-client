@@ -150,4 +150,30 @@
         "test body")
       (Result.Success r) (Response.ok? &r)
       _ false)
-    "307 redirect preserves POST method"))
+    "307 redirect preserves POST method")
+
+  ; =========================================================================
+  ; Credential safety on redirects
+  ; =========================================================================
+
+  ; Same-origin redirect preserves Authorization header
+  (assert-true test
+    (match (Client.request "GET"
+                           "https://httpbin.org/redirect-to?url=/headers&status_code=302"
+                           {@"Authorization" [@"Bearer test-token-123"]}
+                           "")
+      (Result.Success r)
+        (String.contains-string? (Response.body &r) "Bearer test-token-123")
+      _ false)
+    "same-origin redirect preserves Authorization header")
+
+  ; Cross-origin redirect strips Authorization header
+  (assert-true test
+    (match (Client.request "GET"
+                           "https://httpbin.org/redirect-to?url=https%3A%2F%2Fwww.httpbin.org%2Fheaders&status_code=302"
+                           {@"Authorization" [@"Bearer secret-token"]}
+                           "")
+      (Result.Success r)
+        (not (String.contains-string? (Response.body &r) "Bearer secret-token"))
+      (Result.Error _) true)
+    "cross-origin redirect strips Authorization header"))

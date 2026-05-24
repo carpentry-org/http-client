@@ -305,6 +305,36 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
       (the (Map String (Array String)) {})
       headers))
 
+  (hidden sensitive-header?)
+  (private sensitive-header?)
+  (defn sensitive-header? [name]
+    (let [lower (String.ascii-to-lower name)]
+      (or (= &lower "authorization")
+          (or (= &lower "cookie") (= &lower "proxy-authorization")))))
+
+  (hidden strip-sensitive-headers)
+  (private strip-sensitive-headers)
+  (defn strip-sensitive-headers [headers]
+    (Map.kv-reduce
+      &(fn [acc k v] (if (sensitive-header? k) acc (Map.put acc k v)))
+      (the (Map String (Array String)) {})
+      headers))
+
+  (hidden url-origin)
+  (private url-origin)
+  (defn url-origin [url]
+    (match (URI.parse url)
+      (Result.Error _) @""
+      (Result.Success uri)
+        (let [scheme (Maybe.from @(URI.scheme &uri) @"http")
+              host (String.ascii-to-lower &(Maybe.from @(URI.host &uri) @""))
+              port (Maybe.from @(URI.port &uri) (default-port &scheme))]
+          (fmt "%s://%s:%d" &scheme &host port))))
+
+  (hidden cross-origin?)
+  (private cross-origin?)
+  (defn cross-origin? [url-a url-b] (/= &(url-origin url-a) &(url-origin url-b)))
+
   (doc request-stream-with-max-redirects "sends an HTTP request and returns a
 `ResponseStream`, following up to `max-redirects` HTTP redirects.
 
@@ -342,16 +372,27 @@ Pass 0 to disable redirect following.")
                                   (Result.Error @"redirect without Location header"))
                             (break))
                         (Maybe.Just location)
-                          (do
-                            (Connection.close conn)
-                            (set! cur-url (resolve-location &cur-url &location))
-                            (let-do [new-verb (redirect-verb code &cur-verb)]
-                              (when-do (/= &new-verb &cur-verb)
-                                (set! cur-body @"")
-                                (set! cur-headers
-                                      (remove-content-length &cur-headers)))
-                              (set! cur-verb new-verb))
-                            (set! remaining (Int.dec remaining))))
+                          (let [trimmed (Pattern.trim &location)]
+                            (if (String.empty? &trimmed)
+                              (do
+                                (Connection.close conn)
+                                (set! result
+                                      (Result.Error @"redirect with empty Location header"))
+                                (break))
+                              (let-do [new-url (resolve-location &cur-url
+                                                                 &trimmed)]
+                                (Connection.close conn)
+                                (when (cross-origin? &cur-url &new-url)
+                                  (set! cur-headers
+                                        (strip-sensitive-headers &cur-headers)))
+                                (set! cur-url new-url)
+                                (let-do [new-verb (redirect-verb code &cur-verb)]
+                                  (when-do (/= &new-verb &cur-verb)
+                                    (set! cur-body @"")
+                                    (set! cur-headers
+                                          (remove-content-length &cur-headers)))
+                                  (set! cur-verb new-verb))
+                                (set! remaining (Int.dec remaining))))))
                       (do
                         (Connection.close conn)
                         (set! result
