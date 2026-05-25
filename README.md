@@ -77,9 +77,16 @@ implements the `poll` interface from the
 | `Client.del url` | HTTP DELETE |
 | `Client.patch url headers body` | HTTP PATCH |
 | `Client.request verb url headers body` | Generic request |
+| `Client.request-with-max-redirects verb url headers body n` | Generic request with custom redirect limit |
 | `Client.request-stream verb url headers body` | Returns a `ResponseStream` |
+| `Client.request-stream-with-max-redirects verb url headers body n` | Streaming with custom redirect limit |
 
-All return `(Result Response String)` (or `(Result ResponseStream String)` for the streaming variant).
+All return `(Result Response String)` (or `(Result ResponseStream String)` for the streaming variants).
+
+All methods follow HTTP redirects automatically (up to `Client.default-max-redirects`,
+which is 10). For 301/302/303 responses the method is changed to GET and the body is
+dropped. For 307/308 responses the original method and body are preserved. Use the
+`-with-max-redirects` variants to control the limit, or pass 0 to disable.
 
 ### `Connection`
 
@@ -99,7 +106,6 @@ transport dispatch, but exposed in case you want lower-level control.
 - All requests send `Connection: close` for predictable HTTP/1.1 behavior. No
   keep-alive support yet.
 - HTTP/2 is not supported.
-- HTTP redirects are not followed automatically.
 
 ## Testing
 

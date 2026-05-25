@@ -260,32 +260,177 @@ Returns the raw header text and any leftover body data.")
                 (Result.Success resp)
                   (Result.Success (Pair.init resp body-start)))))))))
 
-  (doc request-stream "sends an HTTP request and returns a `ResponseStream` for
-reading the response body incrementally. Use `ResponseStream.poll` to read chunks.
+  (doc default-max-redirects "is the default maximum number of HTTP redirects
+to follow. Used by `request`, `request-stream`, and convenience methods.")
+  (def default-max-redirects 10)
 
-The stream handles chunked transfer-encoding automatically. Check `ResponseStream.status-code`
-to verify the request succeeded before polling.")
+  (hidden redirect?)
+  (private redirect?)
+  (defn redirect? [code]
+    (or (= code 301)
+        (or (= code 302) (or (= code 303) (or (= code 307) (= code 308))))))
+
+  (hidden redirect-verb)
+  (private redirect-verb)
+  (defn redirect-verb [code verb]
+    (if (or (= code 307) (= code 308)) @verb @"GET"))
+
+  (hidden resolve-location)
+  (private resolve-location)
+  (defn resolve-location [base-url location]
+    (if (String.contains-string? location "://")
+      @location
+      (if (String.starts-with? location "/")
+        (match (URI.parse base-url)
+          (Result.Error _) @location
+          (Result.Success base-uri)
+            (let [scheme (Maybe.from @(URI.scheme &base-uri) @"http")
+                  host (Maybe.from @(URI.host &base-uri) @"")
+                  port @(URI.port &base-uri)
+                  port-str (match port
+                    (Maybe.Just p)
+                      (if (= p (default-port &scheme)) @"" (fmt ":%d" p))
+                    (Maybe.Nothing) @"")]
+              (String.concat &[scheme @"://" host port-str @location])))
+        @location)))
+
+  (hidden remove-content-length)
+  (private remove-content-length)
+  (defn remove-content-length [headers]
+    (Map.kv-reduce
+      &(fn [acc k v]
+        (if (= &(String.ascii-to-lower k) "content-length")
+          acc
+          (Map.put acc k v)))
+      (the (Map String (Array String)) {})
+      headers))
+
+  (hidden sensitive-header?)
+  (private sensitive-header?)
+  (defn sensitive-header? [name]
+    (let [lower (String.ascii-to-lower name)]
+      (or (= &lower "authorization")
+          (or (= &lower "cookie") (= &lower "proxy-authorization")))))
+
+  (hidden strip-sensitive-headers)
+  (private strip-sensitive-headers)
+  (defn strip-sensitive-headers [headers]
+    (Map.kv-reduce
+      &(fn [acc k v] (if (sensitive-header? k) acc (Map.put acc k v)))
+      (the (Map String (Array String)) {})
+      headers))
+
+  (hidden url-origin)
+  (private url-origin)
+  (defn url-origin [url]
+    (match (URI.parse url)
+      (Result.Error _) @""
+      (Result.Success uri)
+        (let [scheme (Maybe.from @(URI.scheme &uri) @"http")
+              host (String.ascii-to-lower &(Maybe.from @(URI.host &uri) @""))
+              port (Maybe.from @(URI.port &uri) (default-port &scheme))]
+          (fmt "%s://%s:%d" &scheme &host port))))
+
+  (hidden cross-origin?)
+  (private cross-origin?)
+  (defn cross-origin? [url-a url-b] (/= &(url-origin url-a) &(url-origin url-b)))
+
+  (doc request-stream-with-max-redirects "sends an HTTP request and returns a
+`ResponseStream`, following up to `max-redirects` HTTP redirects.
+
+For 301, 302, and 303 responses the method is changed to GET and the body is
+dropped. For 307 and 308 responses the original method and body are preserved.
+
+Pass 0 to disable redirect following.")
+  (defn request-stream-with-max-redirects [verb url headers body max-redirects]
+    (let-do [cur-verb @verb
+             cur-url @url
+             cur-body @body
+             cur-headers headers
+             remaining max-redirects
+             result (the (Result ResponseStream String) (Result.Error @""))]
+      (while-do true
+        (match (build-and-send &cur-verb &cur-url @&cur-headers &cur-body)
+          (Result.Error e) (do (set! result (Result.Error e)) (break))
+          (Result.Success conn)
+            (match (read-headers &conn)
+              (Result.Error e)
+                (do
+                  (Connection.close conn)
+                  (set! result (Result.Error e))
+                  (break))
+              (Result.Success pair)
+                (let [resp @(Pair.a &pair)
+                      code @(Response.code &resp)]
+                  (if (redirect? code)
+                    (if (> remaining 0)
+                      (match (Response.header &resp "Location")
+                        (Maybe.Nothing)
+                          (do
+                            (Connection.close conn)
+                            (set! result
+                                  (Result.Error @"redirect without Location header"))
+                            (break))
+                        (Maybe.Just location)
+                          (let [trimmed (Pattern.trim &location)]
+                            (if (String.empty? &trimmed)
+                              (do
+                                (Connection.close conn)
+                                (set! result
+                                      (Result.Error @"redirect with empty Location header"))
+                                (break))
+                              (let-do [new-url (resolve-location &cur-url
+                                                                 &trimmed)]
+                                (Connection.close conn)
+                                (when (cross-origin? &cur-url &new-url)
+                                  (set! cur-headers
+                                        (strip-sensitive-headers &cur-headers)))
+                                (set! cur-url new-url)
+                                (let-do [new-verb (redirect-verb code &cur-verb)]
+                                  (when-do (/= &new-verb &cur-verb)
+                                    (set! cur-body @"")
+                                    (set! cur-headers
+                                          (remove-content-length &cur-headers)))
+                                  (set! cur-verb new-verb))
+                                (set! remaining (Int.dec remaining))))))
+                      (do
+                        (Connection.close conn)
+                        (set! result
+                              (Result.Error
+                                (fmt "too many redirects (max %d)" max-redirects)))
+                        (break)))
+                    (let-do [leftover @(Pair.b &pair)
+                             is-chunked (match (Response.header &resp
+                                                                "Transfer-Encoding")
+                               (Maybe.Just te)
+                                 (String.contains-string? &te "chunked")
+                               _ false)]
+                      (set! result
+                            (Result.Success
+                              (ResponseStream.init conn
+                                                   leftover
+                                                   @""
+                                                   is-chunked
+                                                   false
+                                                   code
+                                                   resp)))
+                      (break)))))))
+      result))
+
+  (doc request-stream "sends an HTTP request and returns a `ResponseStream` for
+reading the response body incrementally. Follows up to `default-max-redirects`
+HTTP redirects automatically. Use `ResponseStream.poll` to read chunks.
+
+The stream handles chunked transfer-encoding automatically. Check
+`ResponseStream.status-code` to verify the request succeeded before polling.
+
+See `request-stream-with-max-redirects` to control the redirect limit.")
   (defn request-stream [verb url headers body]
-    (match (build-and-send verb url headers body)
-      (Result.Error e) (Result.Error e)
-      (Result.Success conn)
-        (match (read-headers &conn)
-          (Result.Error e) (do (Connection.close conn) (Result.Error e))
-          (Result.Success pair)
-            (let [resp @(Pair.a &pair)
-                  leftover @(Pair.b &pair)
-                  is-chunked (match (Response.header &resp "Transfer-Encoding")
-                    (Maybe.Just te) (String.contains-string? &te "chunked")
-                    _ false)
-                  code @(Response.code &resp)]
-              (Result.Success
-                (ResponseStream.init conn
-                                     leftover
-                                     @""
-                                     is-chunked
-                                     false
-                                     code
-                                     resp))))))
+    (request-stream-with-max-redirects verb
+                                       url
+                                       headers
+                                       body
+                                       default-max-redirects))
 
   (hidden drain-stream)
   (private drain-stream)
@@ -298,19 +443,32 @@ to verify the request succeeded before polling.")
           (Maybe.Just chunk) (StringBuf.append-str &sb &chunk)))
       (let-do [body (StringBuf.to-string &sb)] (StringBuf.delete sb) body)))
 
-  (doc request
-    "sends an HTTP request to the given URL. Returns `(Result Response String)`.
-
-Internally uses `request-stream` and drains the response body, transparently
-handling chunked transfer-encoding.")
-  (defn request [verb url headers body]
-    (match (request-stream verb url headers body)
+  (doc request-with-max-redirects
+    "sends an HTTP request, following up to `max-redirects` redirects.
+Returns `(Result Response String)`. Pass 0 to disable redirect following.")
+  (defn request-with-max-redirects [verb url headers body max-redirects]
+    (match (request-stream-with-max-redirects verb
+                                              url
+                                              headers
+                                              body
+                                              max-redirects)
       (Result.Error e) (Result.Error e)
       (Result.Success stream)
         (let-do [decoded-body (drain-stream &stream)
                  base-resp @(ResponseStream.parsed-response &stream)]
           (ResponseStream.close stream)
           (Result.Success (Response.set-body base-resp decoded-body)))))
+
+  (doc request
+    "sends an HTTP request to the given URL. Returns `(Result Response String)`.
+
+Follows up to `default-max-redirects` HTTP redirects automatically. For 301,
+302, and 303 responses the method is changed to GET. For 307 and 308 the
+original method is preserved.
+
+See `request-with-max-redirects` to control the redirect limit.")
+  (defn request [verb url headers body]
+    (request-with-max-redirects verb url headers body default-max-redirects))
 
   (doc get "performs an HTTP GET request. Returns `(Result Response String)`.")
   (defn get [url] (request "GET" url (the (Map String (Array String)) {}) ""))

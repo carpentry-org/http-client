@@ -90,4 +90,90 @@
                            "")
       (Result.Success r) (Response.ok? &r)
       _ false)
-    "custom HEAD request returns 200"))
+    "custom HEAD request returns 200")
+
+  ; =========================================================================
+  ; Redirect following
+  ; =========================================================================
+
+  (assert-true test
+    (match (Client.get "https://httpbin.org/redirect/1")
+      (Result.Success r) (Response.ok? &r)
+      _ false)
+    "follows a single 302 redirect")
+
+  (assert-true test
+    (match (Client.get "https://httpbin.org/redirect/3")
+      (Result.Success r) (Response.ok? &r)
+      _ false)
+    "follows multiple 302 redirects")
+
+  (assert-true test
+    (match (Client.get "https://httpbin.org/absolute-redirect/1")
+      (Result.Success r) (Response.ok? &r)
+      _ false)
+    "follows redirect with absolute URL in Location")
+
+  (assert-true test
+    (Result.error?
+      &(Client.request-with-max-redirects "GET"
+                                          "https://httpbin.org/redirect/3"
+                                          (the (Map String (Array String)) {})
+                                          ""
+                                          1))
+    "returns error when max redirects exceeded")
+
+  (assert-true test
+    (Result.error?
+      &(Client.request-with-max-redirects "GET"
+                                          "https://httpbin.org/redirect/1"
+                                          (the (Map String (Array String)) {})
+                                          ""
+                                          0))
+    "max-redirects 0 disables redirect following")
+
+  ; 303 See Other changes POST to GET
+  (assert-true test
+    (match (Client.post
+        "https://httpbin.org/redirect-to?url=/get&status_code=303"
+        {@"Content-Type" [@"text/plain"]}
+        "test body")
+      (Result.Success r) (Response.ok? &r)
+      _ false)
+    "303 redirect changes POST to GET")
+
+  ; 307 Temporary Redirect preserves POST method
+  (assert-true test
+    (match (Client.post
+        "https://httpbin.org/redirect-to?url=/post&status_code=307"
+        {@"Content-Type" [@"text/plain"]}
+        "test body")
+      (Result.Success r) (Response.ok? &r)
+      _ false)
+    "307 redirect preserves POST method")
+
+  ; =========================================================================
+  ; Credential safety on redirects
+  ; =========================================================================
+
+  ; Same-origin redirect preserves Authorization header
+  (assert-true test
+    (match (Client.request "GET"
+                           "https://httpbin.org/redirect-to?url=/headers&status_code=302"
+                           {@"Authorization" [@"Bearer test-token-123"]}
+                           "")
+      (Result.Success r)
+        (String.contains-string? (Response.body &r) "Bearer test-token-123")
+      _ false)
+    "same-origin redirect preserves Authorization header")
+
+  ; Cross-origin redirect strips Authorization header
+  (assert-true test
+    (match (Client.request "GET"
+                           "https://httpbin.org/redirect-to?url=https%3A%2F%2Fwww.httpbin.org%2Fheaders&status_code=302"
+                           {@"Authorization" [@"Bearer secret-token"]}
+                           "")
+      (Result.Success r)
+        (not (String.contains-string? (Response.body &r) "Bearer secret-token"))
+      (Result.Error _) true)
+    "cross-origin redirect strips Authorization header"))
