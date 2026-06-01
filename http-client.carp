@@ -47,6 +47,38 @@ the HTTP client to dispatch send/read over either transport.")
       (Connection.Secure s) (TlsStream.close! s))))
 
 ; ===========================================================================
+; RequestConfig — per-request configuration
+; ===========================================================================
+
+(doc RequestConfig "holds per-request configuration such as timeouts and
+redirect limits.
+
+Create one with `RequestConfig.init` or `RequestConfig.default`:
+
+```
+(let [cfg (RequestConfig.init 5 10 10)]  ; 5s connect, 10s read, 10 redirects
+  (Client.get-with-config \"https://example.com/\" &cfg))
+```
+
+All timeout values are in seconds. A value of 0 (or negative) means no
+timeout.
+
+The `max-redirects` field controls how many HTTP redirects to follow.
+Pass 0 to disable redirect following entirely.
+
+**Note**: connect-timeout applies only to plain HTTP connections.
+HTTPS connections go through `TlsStream.connect`, which does not
+currently support a timeout parameter.")
+(deftype RequestConfig [connect-timeout Int
+                        read-timeout Int
+                        max-redirects Int])
+
+(defmodule RequestConfig
+  (doc default
+    "creates a RequestConfig with no timeouts and up to 10 redirects.")
+  (defn default [] (RequestConfig.init 0 0 10)))
+
+; ===========================================================================
 ; Chunked transfer-encoding decoder (C helper)
 ; ===========================================================================
 
@@ -195,28 +227,40 @@ the response is complete.")
 
   (hidden connect)
   (private connect)
-  (defn connect [scheme host port]
+  (defn connect [scheme host port config]
     (if (= scheme "https")
       (match (TlsStream.connect host port)
-        (Result.Success s) (Result.Success (Connection.Secure s))
+        (Result.Success s)
+          (do
+            (when (> @(RequestConfig.read-timeout config) 0)
+              (TlsStream.set-timeout &s @(RequestConfig.read-timeout config)))
+            (Result.Success (Connection.Secure s)))
         (Result.Error e) (Result.Error e))
-      (match (TcpStream.connect host port)
-        (Result.Success s) (Result.Success (Connection.Plain s))
-        (Result.Error e) (Result.Error e))))
+      (let [tcp-result (if (> @(RequestConfig.connect-timeout config) 0)
+              (TcpStream.connect-timeout host
+                                         port
+                                         @(RequestConfig.connect-timeout config))
+              (TcpStream.connect host port))]
+        (match tcp-result
+          (Result.Success s)
+            (do
+              (when (> @(RequestConfig.read-timeout config) 0)
+                (TcpStream.set-timeout &s @(RequestConfig.read-timeout config)))
+              (Result.Success (Connection.Plain s)))
+          (Result.Error e) (Result.Error e)))))
 
   (hidden build-and-send)
   (private build-and-send)
-  (defn build-and-send [verb url headers body]
+  (defn build-and-send [verb url headers body config]
     (match (URI.parse url)
       (Result.Error e) (Result.Error @&e)
       (Result.Success uri)
         (let [scheme (Maybe.from @(URI.scheme &uri) @"http")
               host (Maybe.from @(URI.host &uri) @"")
-              port (Maybe.from @(URI.port &uri) (default-port &scheme))
-              path (URI.full-path &uri)]
+              port (Maybe.from @(URI.port &uri) (default-port &scheme))]
           (if (= (String.length &host) 0)
             (Result.Error @"missing host in URL")
-            (match (connect &scheme &host port)
+            (match (connect &scheme &host port config)
               (Result.Error e) (Result.Error e)
               (Result.Success conn)
                 (let-do [host-vals [@&host]
@@ -335,22 +379,18 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
   (private cross-origin?)
   (defn cross-origin? [url-a url-b] (/= &(url-origin url-a) &(url-origin url-b)))
 
-  (doc request-stream-with-max-redirects "sends an HTTP request and returns a
-`ResponseStream`, following up to `max-redirects` HTTP redirects.
-
-For 301, 302, and 303 responses the method is changed to GET and the body is
-dropped. For 307 and 308 responses the original method and body are preserved.
-
-Pass 0 to disable redirect following.")
-  (defn request-stream-with-max-redirects [verb url headers body max-redirects]
+  (hidden request-stream-)
+  (private request-stream-)
+  (defn request-stream- [verb url headers body config]
     (let-do [cur-verb @verb
              cur-url @url
              cur-body @body
              cur-headers headers
-             remaining max-redirects
+             max-redir @(RequestConfig.max-redirects config)
+             remaining max-redir
              result (the (Result ResponseStream String) (Result.Error @""))]
       (while-do true
-        (match (build-and-send &cur-verb &cur-url @&cur-headers &cur-body)
+        (match (build-and-send &cur-verb &cur-url @&cur-headers &cur-body config)
           (Result.Error e) (do (set! result (Result.Error e)) (break))
           (Result.Success conn)
             (match (read-headers &conn)
@@ -397,7 +437,7 @@ Pass 0 to disable redirect following.")
                         (Connection.close conn)
                         (set! result
                               (Result.Error
-                                (fmt "too many redirects (max %d)" max-redirects)))
+                                (fmt "too many redirects (max %d)" max-redir)))
                         (break)))
                     (let-do [leftover @(Pair.b &pair)
                              is-chunked (match (Response.header &resp
@@ -417,6 +457,17 @@ Pass 0 to disable redirect following.")
                       (break)))))))
       result))
 
+  (doc request-stream-with-max-redirects "sends an HTTP request and returns a
+`ResponseStream`, following up to `max-redirects` HTTP redirects.
+
+For 301, 302, and 303 responses the method is changed to GET and the body is
+dropped. For 307 and 308 responses the original method and body are preserved.
+
+Pass 0 to disable redirect following.")
+  (defn request-stream-with-max-redirects [verb url headers body max-redirects]
+    (let [cfg (RequestConfig.init 0 0 max-redirects)]
+      (request-stream- verb url headers body &cfg)))
+
   (doc request-stream "sends an HTTP request and returns a `ResponseStream` for
 reading the response body incrementally. Follows up to `default-max-redirects`
 HTTP redirects automatically. Use `ResponseStream.poll` to read chunks.
@@ -431,6 +482,18 @@ See `request-stream-with-max-redirects` to control the redirect limit.")
                                        headers
                                        body
                                        default-max-redirects))
+
+  (doc request-stream-with-config "sends an HTTP request with the given
+`RequestConfig` and returns a `ResponseStream`.
+
+```
+(let [cfg (RequestConfig.init 5 10 10)]
+  (Client.request-stream-with-config \"POST\" url headers body &cfg))
+```
+
+See `RequestConfig` for timeout and redirect details.")
+  (defn request-stream-with-config [verb url headers body config]
+    (request-stream- verb url headers body config))
 
   (hidden drain-stream)
   (private drain-stream)
@@ -470,6 +533,25 @@ See `request-with-max-redirects` to control the redirect limit.")
   (defn request [verb url headers body]
     (request-with-max-redirects verb url headers body default-max-redirects))
 
+  (doc request-with-config
+    "sends an HTTP request with the given `RequestConfig`.
+Returns `(Result Response String)`.
+
+```
+(let [cfg (RequestConfig.init 5 10 10)]
+  (Client.request-with-config \"GET\" url headers body &cfg))
+```
+
+See `RequestConfig` for timeout and redirect details.")
+  (defn request-with-config [verb url headers body config]
+    (match (request-stream-with-config verb url headers body config)
+      (Result.Error e) (Result.Error e)
+      (Result.Success stream)
+        (let-do [decoded-body (drain-stream &stream)
+                 base-resp @(ResponseStream.parsed-response &stream)]
+          (ResponseStream.close stream)
+          (Result.Success (Response.set-body base-resp decoded-body)))))
+
   (doc get "performs an HTTP GET request. Returns `(Result Response String)`.")
   (defn get [url] (request "GET" url (the (Map String (Array String)) {}) ""))
 
@@ -494,4 +576,54 @@ Returns `(Result Response String)`.")
 
   (doc patch "performs an HTTP PATCH request with headers and body.
 Returns `(Result Response String)`.")
-  (defn patch [url headers body] (body-request "PATCH" url headers body)))
+  (defn patch [url headers body] (body-request "PATCH" url headers body))
+
+  ; =========================================================================
+  ; RequestConfig-aware convenience wrappers
+  ; =========================================================================
+
+  (doc get-with-config "performs an HTTP GET request with the given
+`RequestConfig`. Returns `(Result Response String)`.
+See `RequestConfig` for timeout and redirect details.")
+  (defn get-with-config [url config]
+    (request-with-config "GET"
+                         url
+                         (the (Map String (Array String)) {})
+                         ""
+                         config))
+
+  (hidden body-request-with-config)
+  (private body-request-with-config)
+  (defn body-request-with-config [verb url headers body config]
+    (let [cl-vals [(Int.str (String.length body))]
+          hdrs (Map.put headers &@"Content-Length" &cl-vals)]
+      (request-with-config verb url hdrs body config)))
+
+  (doc post-with-config "performs an HTTP POST request with the given
+`RequestConfig`. Returns `(Result Response String)`.
+See `RequestConfig` for timeout and redirect details.")
+  (defn post-with-config [url headers body config]
+    (body-request-with-config "POST" url headers body config))
+
+  (doc put-with-config "performs an HTTP PUT request with the given
+`RequestConfig`. Returns `(Result Response String)`.
+See `RequestConfig` for timeout and redirect details.")
+  (defn put-with-config [url headers body config]
+    (body-request-with-config "PUT" url headers body config))
+
+  (doc del-with-config "performs an HTTP DELETE request with the given
+`RequestConfig`. Returns `(Result Response String)`.
+See `RequestConfig` for timeout and redirect details.")
+  (defn del-with-config [url config]
+    (request-with-config "DELETE"
+                         url
+                         (the (Map String (Array String)) {})
+                         ""
+                         config))
+
+  (doc patch-with-config
+    "performs an HTTP PATCH request with the given `RequestConfig`.
+Returns `(Result Response String)`.
+See `RequestConfig` for timeout and redirect details.")
+  (defn patch-with-config [url headers body config]
+    (body-request-with-config "PATCH" url headers body config)))

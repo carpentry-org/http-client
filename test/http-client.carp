@@ -176,4 +176,76 @@
       (Result.Success r)
         (not (String.contains-string? (Response.body &r) "Bearer secret-token"))
       (Result.Error _) true)
-    "cross-origin redirect strips Authorization header"))
+    "cross-origin redirect strips Authorization header")
+
+  ; =========================================================================
+  ; RequestConfig
+  ; =========================================================================
+
+  (assert-true test
+    (let [cfg (RequestConfig.default)]
+      (and
+        (= @(RequestConfig.connect-timeout &cfg) 0)
+        (and (= @(RequestConfig.read-timeout &cfg) 0)
+             (= @(RequestConfig.max-redirects &cfg) 10))))
+    "RequestConfig.default creates zero timeouts and 10 max redirects")
+
+  ; =========================================================================
+  ; RequestConfig-aware requests
+  ; =========================================================================
+
+  (assert-true test
+    (let [cfg (RequestConfig.default)]
+      (match (Client.get-with-config "https://example.com/" &cfg)
+        (Result.Success r) (Response.ok? &r)
+        _ false))
+    "get-with-config with default config returns 200")
+
+  (assert-true test
+    (let [cfg (RequestConfig.default)]
+      (match (Client.post-with-config "https://httpbin.org/post"
+                                      {@"Content-Type" [@"application/json"]}
+                                      "{\"test\": true}"
+                                      &cfg)
+        (Result.Success r) (Response.ok? &r)
+        _ false))
+    "post-with-config with default config returns 200")
+
+  ; generous read-timeout should not interfere with a fast response
+  (assert-true test
+    (let [cfg (RequestConfig.init 0 30 10)]
+      (match (Client.get-with-config "https://example.com/" &cfg)
+        (Result.Success r) (Response.ok? &r)
+        _ false))
+    "generous read-timeout does not affect fast response")
+
+  ; request-stream-with-config works
+  (assert-true test
+    (let [cfg (RequestConfig.default)]
+      (match (Client.request-stream-with-config "GET"
+                                                "https://example.com/"
+                                                (the (Map String (Array String))
+                                                     {})
+                                                ""
+                                                &cfg)
+        (Result.Success stream)
+          (let-do [code @(ResponseStream.status-code &stream)]
+            (ResponseStream.close stream)
+            (= code 200))
+        _ false))
+    "request-stream-with-config returns stream with correct status")
+
+  ; config-aware requests follow redirects
+  (assert-true test
+    (let [cfg (RequestConfig.default)]
+      (match (Client.get-with-config "https://httpbin.org/redirect/1" &cfg)
+        (Result.Success r) (Response.ok? &r)
+        _ false))
+    "get-with-config follows redirects")
+
+  ; read-timeout triggers on a slow response
+  (assert-true test
+    (let [cfg (RequestConfig.init 0 2 10)]
+      (Result.error?
+        &(Client.get-with-config "https://httpbin.org/delay/10" &cfg)))
+    "read-timeout causes error on slow response"))
