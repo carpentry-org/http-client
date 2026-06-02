@@ -10,7 +10,7 @@ Built on [socket](https://github.com/carpentry-org/socket),
 ## Installation
 
 ```clojure
-(load "git@github.com:carpentry-org/http-client@0.0.1")
+(load "git@github.com:carpentry-org/http-client@0.2.0")
 ```
 
 Requires OpenSSL for HTTPS support (via the `tls` library). Plain HTTP works

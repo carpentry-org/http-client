@@ -48,7 +48,39 @@
   (Result.Success r) (println* (Response.body &amp;r))
   (Result.Error e) (IO.errorln &amp;e))
 </code></pre>
+<h2>Streaming</h2>
+<pre><code>(match (Client.request-stream &quot;POST&quot; url headers body)
+  (Result.Success stream)
+    (do
+      (while-do true
+        (match (ResponseStream.poll &amp;stream)
+          (Maybe.Nothing) (break)
+          (Maybe.Just chunk) (IO.print &amp;chunk)))
+      (ResponseStream.close stream))
+  (Result.Error e) (IO.errorln &amp;e))
+</code></pre>
 
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#default-max-redirects">
+                        <h3 id="default-max-redirects">
+                            default-max-redirects
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        Int
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>is the default maximum number of HTTP redirects
+to follow. Used by <code>request</code>, <code>request-stream</code>, and convenience methods.</p>
+
+                    </p>
                 </div>
                 <div class="binder">
                     <a class="anchor" href="#del">
@@ -71,6 +103,28 @@
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#del-with-config">
+                        <h3 id="del-with-config">
+                            del-with-config
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref RequestConfig b)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (del-with-config url config)
+                    </pre>
+                    <p class="doc">
+                        <p>performs an HTTP DELETE request with the given
+<code>RequestConfig</code>. Returns <code>(Result Response String)</code>.
+See <code>RequestConfig</code> for timeout and redirect details.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#get">
                         <h3 id="get">
                             get
@@ -87,10 +141,28 @@
                     </pre>
                     <p class="doc">
                         <p>performs an HTTP GET request. Returns <code>(Result Response String)</code>.</p>
-<pre><code>(match (Client.get &quot;https://example.com/&quot;)
-  (Result.Success r) (println* (Response.body &amp;r))
-  (Result.Error e) (IO.errorln &amp;e))
-</code></pre>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#get-with-config">
+                        <h3 id="get-with-config">
+                            get-with-config
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref RequestConfig b)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (get-with-config url config)
+                    </pre>
+                    <p class="doc">
+                        <p>performs an HTTP GET request with the given
+<code>RequestConfig</code>. Returns <code>(Result Response String)</code>.
+See <code>RequestConfig</code> for timeout and redirect details.</p>
 
                     </p>
                 </div>
@@ -116,6 +188,28 @@ Returns <code>(Result Response String)</code>.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#patch-with-config">
+                        <h3 id="patch-with-config">
+                            patch-with-config
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Map String (Array String)), (Ref String b), (Ref RequestConfig c)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (patch-with-config url headers body config)
+                    </pre>
+                    <p class="doc">
+                        <p>performs an HTTP PATCH request with the given <code>RequestConfig</code>.
+Returns <code>(Result Response String)</code>.
+See <code>RequestConfig</code> for timeout and redirect details.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#post">
                         <h3 id="post">
                             post
@@ -133,10 +227,28 @@ Returns <code>(Result Response String)</code>.</p>
                     <p class="doc">
                         <p>performs an HTTP POST request with headers and body.
 Returns <code>(Result Response String)</code>.</p>
-<pre><code>(match (Client.post &quot;https://api.example.com/&quot; {@&quot;Content-Type&quot; [@&quot;application/json&quot;]} &quot;{}&quot;)
-  (Result.Success r) (println* (Response.body &amp;r))
-  (Result.Error e) (IO.errorln &amp;e))
-</code></pre>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#post-with-config">
+                        <h3 id="post-with-config">
+                            post-with-config
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Map String (Array String)), (Ref String b), (Ref RequestConfig c)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (post-with-config url headers body config)
+                    </pre>
+                    <p class="doc">
+                        <p>performs an HTTP POST request with the given
+<code>RequestConfig</code>. Returns <code>(Result Response String)</code>.
+See <code>RequestConfig</code> for timeout and redirect details.</p>
 
                     </p>
                 </div>
@@ -162,6 +274,28 @@ Returns <code>(Result Response String)</code>.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#put-with-config">
+                        <h3 id="put-with-config">
+                            put-with-config
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Map String (Array String)), (Ref String b), (Ref RequestConfig c)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (put-with-config url headers body config)
+                    </pre>
+                    <p class="doc">
+                        <p>performs an HTTP PUT request with the given
+<code>RequestConfig</code>. Returns <code>(Result Response String)</code>.
+See <code>RequestConfig</code> for timeout and redirect details.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#request">
                         <h3 id="request">
                             request
@@ -177,9 +311,131 @@ Returns <code>(Result Response String)</code>.</p>
                         (request verb url headers body)
                     </pre>
                     <p class="doc">
-                        <p>sends an HTTP request to the given URL. Takes a verb, URL string,
-headers map, and body string. Parses the URL to determine scheme, host, port,
-and path. Returns <code>(Result Response String)</code>.</p>
+                        <p>sends an HTTP request to the given URL. Returns <code>(Result Response String)</code>.</p>
+<p>Follows up to <code>default-max-redirects</code> HTTP redirects automatically. For 301,
+302, and 303 responses the method is changed to GET. For 307 and 308 the
+original method is preserved.</p>
+<p>See <code>request-with-max-redirects</code> to control the redirect limit.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#request-stream">
+                        <h3 id="request-stream">
+                            request-stream
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref String b), (Map String (Array String)), (Ref String c)] (Result ResponseStream String))
+                    </p>
+                    <pre class="args">
+                        (request-stream verb url headers body)
+                    </pre>
+                    <p class="doc">
+                        <p>sends an HTTP request and returns a <code>ResponseStream</code> for
+reading the response body incrementally. Follows up to <code>default-max-redirects</code>
+HTTP redirects automatically. Use <code>ResponseStream.poll</code> to read chunks.</p>
+<p>The stream handles chunked transfer-encoding automatically. Check
+<code>ResponseStream.status-code</code> to verify the request succeeded before polling.</p>
+<p>See <code>request-stream-with-max-redirects</code> to control the redirect limit.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#request-stream-with-config">
+                        <h3 id="request-stream-with-config">
+                            request-stream-with-config
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref String b), (Map String (Array String)), (Ref String c), (Ref RequestConfig d)] (Result ResponseStream String))
+                    </p>
+                    <pre class="args">
+                        (request-stream-with-config verb url headers body config)
+                    </pre>
+                    <p class="doc">
+                        <p>sends an HTTP request with the given
+<code>RequestConfig</code> and returns a <code>ResponseStream</code>.</p>
+<pre><code>(let [cfg (RequestConfig.init 5 10 10)]
+  (Client.request-stream-with-config &quot;POST&quot; url headers body &amp;cfg))
+</code></pre>
+<p>See <code>RequestConfig</code> for timeout and redirect details.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#request-stream-with-max-redirects">
+                        <h3 id="request-stream-with-max-redirects">
+                            request-stream-with-max-redirects
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref String b), (Map String (Array String)), (Ref String c), Int] (Result ResponseStream String))
+                    </p>
+                    <pre class="args">
+                        (request-stream-with-max-redirects verb url headers body max-redirects)
+                    </pre>
+                    <p class="doc">
+                        <p>sends an HTTP request and returns a
+<code>ResponseStream</code>, following up to <code>max-redirects</code> HTTP redirects.</p>
+<p>For 301, 302, and 303 responses the method is changed to GET and the body is
+dropped. For 307 and 308 responses the original method and body are preserved.</p>
+<p>Pass 0 to disable redirect following.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#request-with-config">
+                        <h3 id="request-with-config">
+                            request-with-config
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref String b), (Map String (Array String)), (Ref String c), (Ref RequestConfig d)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (request-with-config verb url headers body config)
+                    </pre>
+                    <p class="doc">
+                        <p>sends an HTTP request with the given <code>RequestConfig</code>.
+Returns <code>(Result Response String)</code>.</p>
+<pre><code>(let [cfg (RequestConfig.init 5 10 10)]
+  (Client.request-with-config &quot;GET&quot; url headers body &amp;cfg))
+</code></pre>
+<p>See <code>RequestConfig</code> for timeout and redirect details.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#request-with-max-redirects">
+                        <h3 id="request-with-max-redirects">
+                            request-with-max-redirects
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref String b), (Map String (Array String)), (Ref String c), Int] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (request-with-max-redirects verb url headers body max-redirects)
+                    </pre>
+                    <p class="doc">
+                        <p>sends an HTTP request, following up to <code>max-redirects</code> redirects.
+Returns <code>(Result Response String)</code>. Pass 0 to disable redirect following.</p>
 
                     </p>
                 </div>
