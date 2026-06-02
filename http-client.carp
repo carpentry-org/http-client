@@ -154,10 +154,8 @@ from the streams library.
                 (set-buf! s (String.suffix &raw consumed))
                 (set-decoded! s @"")
                 (set! result (Maybe.Just out)))
-              (= rc -1)
-              ; end of stream
-              (do (set-done! s true) (set! result (Maybe.Nothing)) (break))
-              ; rc == 0: need more data
+              (= rc 0)
+              ; need more data
               (match (Connection.read (conn s))
                 (Result.Success chunk)
                   (if (= (String.length &chunk) 0)
@@ -167,7 +165,9 @@ from the streams library.
                       (StringBuf.append-str &sb (buf s))
                       (StringBuf.append-str &sb &chunk)
                       (set-buf! s (StringBuf.to-string &sb))))
-                (Result.Error _) (do (set-done! s true) (break)))))))
+                (Result.Error _) (do (set-done! s true) (break)))
+              ; rc < 0: end of stream (-1) or parse error (-2)
+              (do (set-done! s true) (set! result (Maybe.Nothing)) (break))))))
       (StringBuf.delete sb)
       result))
 
