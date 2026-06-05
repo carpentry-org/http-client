@@ -270,7 +270,7 @@ the response is complete.")
                       req (Request.request @verb uri [] full-headers @body)]
                   (match (Connection.send &conn &(Request.str &req))
                     (Result.Success _) (Result.Success conn)
-                    (Result.Error e) (Result.Error e))))))))
+                    (Result.Error e) (do (Connection.close conn) (Result.Error e)))))))))
 
   (hidden read-headers)
   (private read-headers)
