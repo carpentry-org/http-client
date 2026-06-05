@@ -263,15 +263,15 @@ the response is complete.")
             (match (connect &scheme &host port config)
               (Result.Error e) (Result.Error e)
               (Result.Success conn)
-                (let-do [host-vals [@&host]
-                         conn-vals [@"close"]
-                         with-host (Map.put headers &@"Host" &host-vals)
-                         full-headers (Map.put with-host
-                                               &@"Connection"
-                                               &conn-vals)
-                         req (Request.request @verb uri [] full-headers @body)]
-                  (ignore (Connection.send &conn &(Request.str &req)))
-                  (Result.Success conn)))))))
+                (let [host-vals [@&host]
+                      conn-vals [@"close"]
+                      with-host (Map.put headers &@"Host" &host-vals)
+                      full-headers (Map.put with-host &@"Connection" &conn-vals)
+                      req (Request.request @verb uri [] full-headers @body)]
+                  (match (Connection.send &conn &(Request.str &req))
+                    (Result.Success _) (Result.Success conn)
+                    (Result.Error e)
+                      (do (Connection.close conn) (Result.Error e)))))))))
 
   (hidden read-headers)
   (private read-headers)
