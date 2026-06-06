@@ -555,6 +555,10 @@ See `RequestConfig` for timeout and redirect details.")
   (doc get "performs an HTTP GET request. Returns `(Result Response String)`.")
   (defn get [url] (request "GET" url (the (Map String (Array String)) {}) ""))
 
+  (doc head "performs an HTTP HEAD request. Returns `(Result Response String)`.
+The response body will be empty, but headers and status code are available.")
+  (defn head [url] (request "HEAD" url (the (Map String (Array String)) {}) ""))
+
   (hidden body-request)
   (private body-request)
   (defn body-request [verb url headers body]
@@ -587,6 +591,16 @@ Returns `(Result Response String)`.")
 See `RequestConfig` for timeout and redirect details.")
   (defn get-with-config [url config]
     (request-with-config "GET"
+                         url
+                         (the (Map String (Array String)) {})
+                         ""
+                         config))
+
+  (doc head-with-config "performs an HTTP HEAD request with the given
+`RequestConfig`. Returns `(Result Response String)`.
+See `RequestConfig` for timeout and redirect details.")
+  (defn head-with-config [url config]
+    (request-with-config "HEAD"
                          url
                          (the (Map String (Array String)) {})
                          ""

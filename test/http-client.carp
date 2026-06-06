@@ -80,17 +80,20 @@
     "HTTPS DELETE returns 200")
 
   ; =========================================================================
-  ; Custom request
+  ; HEAD
   ; =========================================================================
 
   (assert-true test
-    (match (Client.request "HEAD"
-                           "https://example.com/"
-                           (the (Map String (Array String)) {})
-                           "")
+    (match (Client.head "https://example.com/")
       (Result.Success r) (Response.ok? &r)
       _ false)
-    "custom HEAD request returns 200")
+    "HEAD request returns 200")
+
+  (assert-true test
+    (match (Client.head "https://example.com/")
+      (Result.Success r) (= (String.length (Response.body &r)) 0)
+      _ false)
+    "HEAD request returns empty body")
 
   ; =========================================================================
   ; Redirect following
@@ -200,6 +203,13 @@
         (Result.Success r) (Response.ok? &r)
         _ false))
     "get-with-config with default config returns 200")
+
+  (assert-true test
+    (let [cfg (RequestConfig.default)]
+      (match (Client.head-with-config "https://example.com/" &cfg)
+        (Result.Success r) (Response.ok? &r)
+        _ false))
+    "head-with-config with default config returns 200")
 
   (assert-true test
     (let [cfg (RequestConfig.default)]
