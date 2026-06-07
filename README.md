@@ -92,6 +92,7 @@ implements the `poll` interface from the
 | `Client.post url headers body` | HTTP POST (auto-sets Content-Length) |
 | `Client.put url headers body` | HTTP PUT |
 | `Client.del url` | HTTP DELETE |
+| `Client.head url` | HTTP HEAD |
 | `Client.patch url headers body` | HTTP PATCH |
 | `Client.request verb url headers body` | Generic request |
 | `Client.request-with-max-redirects verb url headers body n` | Generic request with custom redirect limit |
@@ -101,6 +102,7 @@ implements the `poll` interface from the
 | `Client.post-with-config url headers body config` | POST with request config |
 | `Client.put-with-config url headers body config` | PUT with request config |
 | `Client.del-with-config url config` | DELETE with request config |
+| `Client.head-with-config url config` | HEAD with request config |
 | `Client.patch-with-config url headers body config` | PATCH with request config |
 | `Client.request-with-config verb url headers body config` | Generic request with request config |
 | `Client.request-stream-with-config verb url headers body config` | Streaming with request config |
