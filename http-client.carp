@@ -3,6 +3,8 @@
 (load "git@github.com:carpentry-org/tls@0.1.0")
 (load "git@github.com:carpentry-org/strbuf@0.1.0")
 
+(load "src/multipart.carp")
+
 (relative-include "src/chunked.h")
 
 ; The `poll` interface for pull-based streams. Inlined here so that
@@ -638,4 +640,46 @@ See `RequestConfig` for timeout and redirect details.")
 Returns `(Result Response String)`.
 See `RequestConfig` for timeout and redirect details.")
   (defn patch-with-config [url headers body config]
-    (body-request-with-config "PATCH" url headers body config)))
+    (body-request-with-config "PATCH" url headers body config))
+
+  ; =========================================================================
+  ; Multipart form-data convenience wrappers
+  ; =========================================================================
+
+  (doc post-multipart "performs an HTTP POST request with a multipart/form-data
+body. Generates a boundary, encodes the parts, and sets the Content-Type
+header automatically. Any Content-Type header in `headers` is overwritten.
+Returns `(Result Response String)`.
+
+```
+(Client.post-multipart \"https://example.com/upload\"
+  {}
+  &[(Multipart.text-part \"field\" \"value\")
+    (Multipart.file-part \"upload\" \"test.txt\"
+                         \"text/plain\" \"file contents\")])
+```")
+  (defn post-multipart [url headers parts]
+    (let [boundary (Multipart.generate-boundary)
+          body (Multipart.encode parts &boundary)
+          ct-vals [(Multipart.content-type-header &boundary)]
+          cl-vals [(Int.str (String.length &body))]
+          hdrs (Map.put
+            (Map.put headers &@"Content-Type" &ct-vals)
+            &@"Content-Length"
+            &cl-vals)]
+      (request "POST" url hdrs &body)))
+
+  (doc post-multipart-with-config "performs an HTTP POST request with a
+multipart/form-data body using the given `RequestConfig`.
+Returns `(Result Response String)`.
+See `RequestConfig` for timeout and redirect details.")
+  (defn post-multipart-with-config [url headers parts config]
+    (let [boundary (Multipart.generate-boundary)
+          body (Multipart.encode parts &boundary)
+          ct-vals [(Multipart.content-type-header &boundary)]
+          cl-vals [(Int.str (String.length &body))]
+          hdrs (Map.put
+            (Map.put headers &@"Content-Type" &ct-vals)
+            &@"Content-Length"
+            &cl-vals)]
+      (request-with-config "POST" url hdrs &body config))))

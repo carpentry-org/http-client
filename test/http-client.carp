@@ -258,4 +258,139 @@
     (let [cfg (RequestConfig.init 0 2 10)]
       (Result.error?
         &(Client.get-with-config "https://httpbin.org/delay/10" &cfg)))
-    "read-timeout causes error on slow response"))
+    "read-timeout causes error on slow response")
+
+  ; =========================================================================
+  ; Multipart encoding
+  ; =========================================================================
+
+  ; text-part creates a Part with no filename or content-type
+  (assert-equal test
+    &@"field"
+    (Part.name &(Multipart.text-part "field" "value"))
+    "text-part sets name")
+
+  (assert-equal test
+    &@"value"
+    (Part.body &(Multipart.text-part "field" "value"))
+    "text-part sets body")
+
+  (assert-true test
+    (Maybe.nothing? (Part.filename &(Multipart.text-part "field" "value")))
+    "text-part has no filename")
+
+  (assert-true test
+    (Maybe.nothing? (Part.content-type &(Multipart.text-part "field" "value")))
+    "text-part has no content-type")
+
+  ; file-part creates a Part with filename and content-type
+  (assert-equal test
+    &@"upload"
+    (Part.name &(Multipart.file-part "upload" "test.txt" "text/plain" "data"))
+    "file-part sets name")
+
+  (assert-equal test
+    &(Maybe.Just @"test.txt")
+    (Part.filename
+      &(Multipart.file-part "upload" "test.txt" "text/plain" "data"))
+    "file-part sets filename")
+
+  (assert-equal test
+    &(Maybe.Just @"text/plain")
+    (Part.content-type
+      &(Multipart.file-part "upload" "test.txt" "text/plain" "data"))
+    "file-part sets content-type")
+
+  ; content-type-header produces correct value
+  (assert-equal test
+    &@"multipart/form-data; boundary=myboundary"
+    &(Multipart.content-type-header "myboundary")
+    "content-type-header formats correctly")
+
+  ; generate-boundary returns a non-empty string
+  (assert-true test
+    (> (String.length &(Multipart.generate-boundary)) 0)
+    "generate-boundary returns non-empty string")
+
+  (assert-true test
+    (String.starts-with? &(Multipart.generate-boundary) "----CarpBoundary")
+    "generate-boundary starts with expected prefix")
+
+  ; encode single text part
+  (assert-equal test
+    &@"--b\r\nContent-Disposition: form-data; name=\"field\"\r\n\r\nvalue\r\n--b--\r\n"
+    &(Multipart.encode &[(Multipart.text-part "field" "value")] "b")
+    "encode single text part")
+
+  ; encode single file part
+  (assert-equal test
+    &@"--b\r\nContent-Disposition: form-data; name=\"f\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\ndata\r\n--b--\r\n"
+    &(Multipart.encode
+      &[(Multipart.file-part "f" "test.txt" "text/plain" "data")]
+      "b")
+    "encode single file part")
+
+  ; encode multiple parts
+  (assert-equal test
+    &@"--b\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\nCarp\r\n--b\r\nContent-Disposition: form-data; name=\"f\"; filename=\"x.bin\"\r\nContent-Type: application/octet-stream\r\n\r\nBIN\r\n--b--\r\n"
+    &(Multipart.encode
+      &[(Multipart.text-part "name" "Carp")
+        (Multipart.file-part "f" "x.bin" "application/octet-stream" "BIN")]
+      "b")
+    "encode mixed text and file parts")
+
+  ; encode empty parts array
+  (assert-equal test
+    &@"--b--\r\n"
+    &(Multipart.encode &(the (Array Part) []) "b")
+    "encode empty parts produces closing boundary only")
+
+  ; encode escapes quotes in name and filename
+  (assert-equal test
+    &@"--b\r\nContent-Disposition: form-data; name=\"a\\\"b\"; filename=\"c\\\"d\"\r\nContent-Type: text/plain\r\n\r\ndata\r\n--b--\r\n"
+    &(Multipart.encode
+      &[(Multipart.file-part "a\"b" "c\"d" "text/plain" "data")]
+      "b")
+    "encode escapes quotes in name and filename")
+
+  ; =========================================================================
+  ; POST multipart (integration)
+  ; =========================================================================
+
+  (assert-true test
+    (Result.success?
+      &(Client.post-multipart "https://httpbin.org/post"
+                              (the (Map String (Array String)) {})
+                              &[(Multipart.text-part "greeting"
+                                                     "hello from carp")]))
+    "post-multipart to httpbin.org succeeds")
+
+  (assert-true test
+    (match (Client.post-multipart "https://httpbin.org/post"
+                                  (the (Map String (Array String)) {})
+                                  &[(Multipart.text-part "greeting" "hello")])
+      (Result.Success r) (Response.ok? &r)
+      _ false)
+    "post-multipart returns 200")
+
+  (assert-true test
+    (match (Client.post-multipart "https://httpbin.org/post"
+                                  (the (Map String (Array String)) {})
+                                  &[(Multipart.text-part "greeting"
+                                                         "hello from carp")])
+      (Result.Success r)
+        (String.contains-string? (Response.body &r) "hello from carp")
+      _ false)
+    "post-multipart body is echoed back by httpbin")
+
+  (assert-true test
+    (match (Client.post-multipart "https://httpbin.org/post"
+                                  (the (Map String (Array String)) {})
+                                  &[(Multipart.file-part "upload"
+                                                         "test.txt"
+                                                         "text/plain"
+                                                         "file contents")])
+      (Result.Success r)
+        (String.contains-string? (Response.body &r) "file contents")
+      _ false)
+    "post-multipart file part is echoed back by httpbin"))

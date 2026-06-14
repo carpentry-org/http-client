@@ -1,0 +1,93 @@
+(doc Part "represents a single part in a multipart/form-data body.
+Use `Multipart.text-part` to create a simple text field, or
+`Multipart.file-part` to create a file upload part.")
+(deftype Part
+  [name String
+   filename (Maybe String)
+   content-type (Maybe String)
+   body String])
+
+(doc Multipart "provides multipart/form-data encoding for HTTP requests
+(RFC 7578).
+
+## Encoding manually
+
+```
+(let [parts [(Multipart.text-part \"name\" \"Carp\")
+             (Multipart.file-part \"upload\" \"test.txt\"
+                                  \"text/plain\" \"file contents\")]
+      boundary (Multipart.generate-boundary)]
+  (Client.post url
+    {@\"Content-Type\" [(Multipart.content-type-header &boundary)]}
+    &(Multipart.encode &parts &boundary)))
+```
+
+## Convenience function
+
+```
+(Client.post-multipart url {}
+  &[(Multipart.text-part \"field\" \"value\")])
+```")
+(defmodule Multipart
+  (hidden escape-quotes)
+  (private escape-quotes)
+  (defn escape-quotes [s]
+    (let [q (Char.from-int 34)] (String.join "\\\"" &(String.split-by s &[q]))))
+
+  (doc text-part "creates a text form field part with the given name and value.")
+  (defn text-part [name value]
+    (Part.init @name (Maybe.Nothing) (Maybe.Nothing) @value))
+
+  (doc file-part "creates a file upload part with a filename and content type.
+The `data` parameter is the raw file contents as a string.")
+  (defn file-part [name filename content-type data]
+    (Part.init @name (Maybe.Just @filename) (Maybe.Just @content-type) @data))
+
+  (doc generate-boundary
+    "generates a boundary string for multipart encoding, using the current
+time for uniqueness.")
+  (defn generate-boundary []
+    (String.append "----CarpBoundary" &(Int.str (System.time))))
+
+  (doc content-type-header
+    "returns the Content-Type header value for multipart/form-data with the
+given boundary.")
+  (defn content-type-header [boundary]
+    (String.append "multipart/form-data; boundary=" boundary))
+
+  (doc encode
+    "encodes an array of parts into a multipart/form-data body string using
+the given boundary (RFC 7578).")
+  (defn encode [parts boundary]
+    (let-do [sb (StringBuf.create)]
+      (for [i 0 (Array.length parts)]
+        (let-do [part (Array.unsafe-nth parts i)]
+          (StringBuf.append-str &sb "--")
+          (StringBuf.append-str &sb boundary)
+          (StringBuf.append-crlf &sb)
+          (StringBuf.append-str &sb "Content-Disposition: form-data; name=\"")
+          (StringBuf.append-str &sb &(escape-quotes (Part.name part)))
+          (StringBuf.append-str &sb "\"")
+          (match-ref (Part.filename part)
+            (Maybe.Just fname)
+              (do
+                (StringBuf.append-str &sb "; filename=\"")
+                (StringBuf.append-str &sb &(escape-quotes fname))
+                (StringBuf.append-str &sb "\""))
+            (Maybe.Nothing) ())
+          (StringBuf.append-crlf &sb)
+          (match-ref (Part.content-type part)
+            (Maybe.Just ct)
+              (do
+                (StringBuf.append-str &sb "Content-Type: ")
+                (StringBuf.append-str &sb ct)
+                (StringBuf.append-crlf &sb))
+            (Maybe.Nothing) ())
+          (StringBuf.append-crlf &sb)
+          (StringBuf.append-str &sb (Part.body part))
+          (StringBuf.append-crlf &sb)))
+      (StringBuf.append-str &sb "--")
+      (StringBuf.append-str &sb boundary)
+      (StringBuf.append-str &sb "--")
+      (StringBuf.append-crlf &sb)
+      (let-do [result (StringBuf.to-string &sb)] (StringBuf.delete sb) result))))
