@@ -345,6 +345,14 @@
     &(Multipart.encode &(the (Array Part) []) "b")
     "encode empty parts produces closing boundary only")
 
+  ; encode escapes quotes in name and filename
+  (assert-equal test
+    &@"--b\r\nContent-Disposition: form-data; name=\"a\\\"b\"; filename=\"c\\\"d\"\r\nContent-Type: text/plain\r\n\r\ndata\r\n--b--\r\n"
+    &(Multipart.encode
+      &[(Multipart.file-part "a\"b" "c\"d" "text/plain" "data")]
+      "b")
+    "encode escapes quotes in name and filename")
+
   ; =========================================================================
   ; POST multipart (integration)
   ; =========================================================================

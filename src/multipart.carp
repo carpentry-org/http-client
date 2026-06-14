@@ -29,6 +29,11 @@ Use `Multipart.text-part` to create a simple text field, or
   &[(Multipart.text-part \"field\" \"value\")])
 ```")
 (defmodule Multipart
+  (hidden escape-quotes)
+  (private escape-quotes)
+  (defn escape-quotes [s]
+    (let [q (Char.from-int 34)] (String.join "\\\"" &(String.split-by s &[q]))))
+
   (doc text-part "creates a text form field part with the given name and value.")
   (defn text-part [name value]
     (Part.init @name (Maybe.Nothing) (Maybe.Nothing) @value))
@@ -61,13 +66,13 @@ the given boundary (RFC 7578).")
           (StringBuf.append-str &sb boundary)
           (StringBuf.append-crlf &sb)
           (StringBuf.append-str &sb "Content-Disposition: form-data; name=\"")
-          (StringBuf.append-str &sb (Part.name part))
+          (StringBuf.append-str &sb &(escape-quotes (Part.name part)))
           (StringBuf.append-str &sb "\"")
           (match-ref (Part.filename part)
             (Maybe.Just fname)
               (do
                 (StringBuf.append-str &sb "; filename=\"")
-                (StringBuf.append-str &sb fname)
+                (StringBuf.append-str &sb &(escape-quotes fname))
                 (StringBuf.append-str &sb "\""))
             (Maybe.Nothing) ())
           (StringBuf.append-crlf &sb)
