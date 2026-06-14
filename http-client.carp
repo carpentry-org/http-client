@@ -174,10 +174,7 @@ from the streams library.
   (doc poll "returns the next chunk of decoded body data, or `Nothing` when
 the response is complete.")
   (defn poll [s]
-    (cond
-      @(done s) (Maybe.Nothing)
-      @(chunked s) (poll-chunked s)
-      (poll-raw s)))
+    (cond @(done s) (Maybe.Nothing) @(chunked s) (poll-chunked s) (poll-raw s)))
   (implements poll ResponseStream.poll)
 
   (doc close "closes the underlying connection.")
