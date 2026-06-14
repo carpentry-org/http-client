@@ -174,9 +174,10 @@ from the streams library.
   (doc poll "returns the next chunk of decoded body data, or `Nothing` when
 the response is complete.")
   (defn poll [s]
-    (if @(done s)
-      (Maybe.Nothing)
-      (if @(chunked s) (poll-chunked s) (poll-raw s))))
+    (cond
+      @(done s) (Maybe.Nothing)
+      @(chunked s) (poll-chunked s)
+      (poll-raw s)))
   (implements poll ResponseStream.poll)
 
   (doc close "closes the underlying connection.")
@@ -322,9 +323,9 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
   (hidden resolve-location)
   (private resolve-location)
   (defn resolve-location [base-url location]
-    (if (String.contains-string? location "://")
-      @location
-      (if (String.starts-with? location "/")
+    (cond
+      (String.contains-string? location "://") @location
+      (String.starts-with? location "/")
         (match (URI.parse base-url)
           (Result.Error _) @location
           (Result.Success base-uri)
@@ -336,7 +337,7 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
                       (if (= p (default-port &scheme)) @"" (fmt ":%d" p))
                     (Maybe.Nothing) @"")]
               (String.concat &[scheme @"://" host port-str @location])))
-        @location)))
+      @location))
 
   (hidden remove-content-length)
   (private remove-content-length)
