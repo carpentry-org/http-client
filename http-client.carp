@@ -12,10 +12,6 @@
 ; `streams` package is published later, this declaration is compatible.
 (definterface poll (λ [&a] (Maybe b)))
 
-; ===========================================================================
-; Connection type and operations
-; ===========================================================================
-
 (doc Connection "is a union of plain TCP and TLS-encrypted streams, allowing
 the HTTP client to dispatch send/read over either transport.")
 (deftype Connection
@@ -48,10 +44,6 @@ the HTTP client to dispatch send/read over either transport.")
       (Connection.Plain s) (TcpStream.close! s)
       (Connection.Secure s) (TlsStream.close! s))))
 
-; ===========================================================================
-; RequestConfig — per-request configuration
-; ===========================================================================
-
 (doc RequestConfig "holds per-request configuration such as timeouts and
 redirect limits.
 
@@ -80,19 +72,11 @@ currently support a timeout parameter.")
     "creates a RequestConfig with no timeouts and up to 10 redirects.")
   (defn default [] (RequestConfig.init 0 0 10)))
 
-; ===========================================================================
-; Chunked transfer-encoding decoder (C helper)
-; ===========================================================================
-
 (private chunked-decode-one-)
 (hidden chunked-decode-one-)
 (register chunked-decode-one-
   (Fn [(Ptr CChar) Int (Ptr String) (Ptr Int)] Int)
   "chunked_decode_one")
-
-; ===========================================================================
-; ResponseStream — pull-based chunked response reader
-; ===========================================================================
 
 (doc ResponseStream "is a pull-based stream for reading HTTP response bodies.
 Handles chunked transfer-encoding automatically. Implements the `poll` interface
@@ -185,10 +169,6 @@ the response is complete.")
   (doc close! "closes the underlying connection by reference.")
   (defn close! [s] (Connection.close! (conn s))))
 
-; ===========================================================================
-; Client module
-; ===========================================================================
-
 (doc Client "is an HTTP client that supports both HTTP and HTTPS.
 
 ## Basic GET
@@ -275,8 +255,6 @@ the response is complete.")
 
   (hidden read-headers)
   (private read-headers)
-  (doc read-headers "reads from a connection until HTTP headers are complete.
-Returns the raw header text and any leftover body data.")
   (defn read-headers [conn]
     (let-do [sb (StringBuf.create)
              found false]
@@ -582,10 +560,6 @@ Returns `(Result Response String)`.")
 Returns `(Result Response String)`.")
   (defn patch [url headers body] (body-request "PATCH" url headers body))
 
-  ; =========================================================================
-  ; RequestConfig-aware convenience wrappers
-  ; =========================================================================
-
   (doc get-with-config "performs an HTTP GET request with the given
 `RequestConfig`. Returns `(Result Response String)`.
 See `RequestConfig` for timeout and redirect details.")
@@ -641,10 +615,6 @@ Returns `(Result Response String)`.
 See `RequestConfig` for timeout and redirect details.")
   (defn patch-with-config [url headers body config]
     (body-request-with-config "PATCH" url headers body config))
-
-  ; =========================================================================
-  ; Multipart form-data convenience wrappers
-  ; =========================================================================
 
   (doc post-multipart "performs an HTTP POST request with a multipart/form-data
 body. Generates a boundary, encodes the parts, and sets the Content-Type
