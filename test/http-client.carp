@@ -4,10 +4,6 @@
 (use Test)
 
 (deftest test
-  ; =========================================================================
-  ; HTTPS GET
-  ; =========================================================================
-
   (assert-true test
     (Result.success? &(Client.get "https://example.com/"))
     "HTTPS GET to example.com succeeds")
@@ -25,10 +21,6 @@
       _ false)
     "HTTPS GET returns HTML body")
 
-  ; =========================================================================
-  ; Response headers
-  ; =========================================================================
-
   (assert-true test
     (match (Client.get "https://example.com/")
       (Result.Success r)
@@ -38,10 +30,6 @@
       _ false)
     "response contains Content-Type header")
 
-  ; =========================================================================
-  ; Error handling
-  ; =========================================================================
-
   (assert-true test
     (Result.error? &(Client.get "https://localhost:1/"))
     "connection to invalid address returns error")
@@ -49,10 +37,6 @@
   (assert-true test
     (Result.error? &(Client.get "not-a-url"))
     "invalid URL returns error")
-
-  ; =========================================================================
-  ; POST
-  ; =========================================================================
 
   (assert-true test
     (Result.success?
@@ -69,19 +53,11 @@
       _ false)
     "HTTPS POST returns 200")
 
-  ; =========================================================================
-  ; DELETE
-  ; =========================================================================
-
   (assert-true test
     (match (Client.del "https://httpbin.org/delete")
       (Result.Success r) (Response.ok? &r)
       _ false)
     "HTTPS DELETE returns 200")
-
-  ; =========================================================================
-  ; HEAD
-  ; =========================================================================
 
   (assert-true test
     (match (Client.head "https://example.com/")
@@ -94,10 +70,6 @@
       (Result.Success r) (= (String.length (Response.body &r)) 0)
       _ false)
     "HEAD request returns empty body")
-
-  ; =========================================================================
-  ; Redirect following
-  ; =========================================================================
 
   (assert-true test
     (match (Client.get "https://httpbin.org/redirect/1")
@@ -135,7 +107,6 @@
                                           0))
     "max-redirects 0 disables redirect following")
 
-  ; 303 See Other changes POST to GET
   (assert-true test
     (match (Client.post
         "https://httpbin.org/redirect-to?url=/get&status_code=303"
@@ -145,7 +116,6 @@
       _ false)
     "303 redirect changes POST to GET")
 
-  ; 307 Temporary Redirect preserves POST method
   (assert-true test
     (match (Client.post
         "https://httpbin.org/redirect-to?url=/post&status_code=307"
@@ -155,11 +125,6 @@
       _ false)
     "307 redirect preserves POST method")
 
-  ; =========================================================================
-  ; Credential safety on redirects
-  ; =========================================================================
-
-  ; Same-origin redirect preserves Authorization header
   (assert-true test
     (match (Client.request "GET"
                            "https://httpbin.org/redirect-to?url=/headers&status_code=302"
@@ -170,7 +135,6 @@
       _ false)
     "same-origin redirect preserves Authorization header")
 
-  ; Cross-origin redirect strips Authorization header
   (assert-true test
     (match (Client.request "GET"
                            "https://httpbin.org/redirect-to?url=https%3A%2F%2Fwww.httpbin.org%2Fheaders&status_code=302"
@@ -181,10 +145,6 @@
       (Result.Error _) true)
     "cross-origin redirect strips Authorization header")
 
-  ; =========================================================================
-  ; RequestConfig
-  ; =========================================================================
-
   (assert-true test
     (let [cfg (RequestConfig.default)]
       (and
@@ -192,10 +152,6 @@
         (and (= @(RequestConfig.read-timeout &cfg) 0)
              (= @(RequestConfig.max-redirects &cfg) 10))))
     "RequestConfig.default creates zero timeouts and 10 max redirects")
-
-  ; =========================================================================
-  ; RequestConfig-aware requests
-  ; =========================================================================
 
   (assert-true test
     (let [cfg (RequestConfig.default)]
@@ -221,7 +177,6 @@
         _ false))
     "post-with-config with default config returns 200")
 
-  ; generous read-timeout should not interfere with a fast response
   (assert-true test
     (let [cfg (RequestConfig.init 0 30 10)]
       (match (Client.get-with-config "https://example.com/" &cfg)
@@ -229,7 +184,6 @@
         _ false))
     "generous read-timeout does not affect fast response")
 
-  ; request-stream-with-config works
   (assert-true test
     (let [cfg (RequestConfig.default)]
       (match (Client.request-stream-with-config "GET"
@@ -245,7 +199,6 @@
         _ false))
     "request-stream-with-config returns stream with correct status")
 
-  ; config-aware requests follow redirects
   (assert-true test
     (let [cfg (RequestConfig.default)]
       (match (Client.get-with-config "https://httpbin.org/redirect/1" &cfg)
@@ -253,18 +206,12 @@
         _ false))
     "get-with-config follows redirects")
 
-  ; read-timeout triggers on a slow response
   (assert-true test
     (let [cfg (RequestConfig.init 0 2 10)]
       (Result.error?
         &(Client.get-with-config "https://httpbin.org/delay/10" &cfg)))
     "read-timeout causes error on slow response")
 
-  ; =========================================================================
-  ; Multipart encoding
-  ; =========================================================================
-
-  ; text-part creates a Part with no filename or content-type
   (assert-equal test
     &@"field"
     (Part.name &(Multipart.text-part "field" "value"))
@@ -283,7 +230,6 @@
     (Maybe.nothing? (Part.content-type &(Multipart.text-part "field" "value")))
     "text-part has no content-type")
 
-  ; file-part creates a Part with filename and content-type
   (assert-equal test
     &@"upload"
     (Part.name &(Multipart.file-part "upload" "test.txt" "text/plain" "data"))
@@ -301,13 +247,11 @@
       &(Multipart.file-part "upload" "test.txt" "text/plain" "data"))
     "file-part sets content-type")
 
-  ; content-type-header produces correct value
   (assert-equal test
     &@"multipart/form-data; boundary=myboundary"
     &(Multipart.content-type-header "myboundary")
     "content-type-header formats correctly")
 
-  ; generate-boundary returns a non-empty string
   (assert-true test
     (> (String.length &(Multipart.generate-boundary)) 0)
     "generate-boundary returns non-empty string")
@@ -316,13 +260,11 @@
     (String.starts-with? &(Multipart.generate-boundary) "----CarpBoundary")
     "generate-boundary starts with expected prefix")
 
-  ; encode single text part
   (assert-equal test
     &@"--b\r\nContent-Disposition: form-data; name=\"field\"\r\n\r\nvalue\r\n--b--\r\n"
     &(Multipart.encode &[(Multipart.text-part "field" "value")] "b")
     "encode single text part")
 
-  ; encode single file part
   (assert-equal test
     &@"--b\r\nContent-Disposition: form-data; name=\"f\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\ndata\r\n--b--\r\n"
     &(Multipart.encode
@@ -330,7 +272,6 @@
       "b")
     "encode single file part")
 
-  ; encode multiple parts
   (assert-equal test
     &@"--b\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\nCarp\r\n--b\r\nContent-Disposition: form-data; name=\"f\"; filename=\"x.bin\"\r\nContent-Type: application/octet-stream\r\n\r\nBIN\r\n--b--\r\n"
     &(Multipart.encode
@@ -339,23 +280,17 @@
       "b")
     "encode mixed text and file parts")
 
-  ; encode empty parts array
   (assert-equal test
     &@"--b--\r\n"
     &(Multipart.encode &(the (Array Part) []) "b")
     "encode empty parts produces closing boundary only")
 
-  ; encode escapes quotes in name and filename
   (assert-equal test
     &@"--b\r\nContent-Disposition: form-data; name=\"a\\\"b\"; filename=\"c\\\"d\"\r\nContent-Type: text/plain\r\n\r\ndata\r\n--b--\r\n"
     &(Multipart.encode
       &[(Multipart.file-part "a\"b" "c\"d" "text/plain" "data")]
       "b")
     "encode escapes quotes in name and filename")
-
-  ; =========================================================================
-  ; POST multipart (integration)
-  ; =========================================================================
 
   (assert-true test
     (Result.success?

@@ -20,13 +20,9 @@
                              &[(String.allocate (- size 4) \h) @"\r\n\r\n"])))
     chunks))
 
-; ----------------------------------------------------------------
-; read-headers accumulation pattern
-;
 ; Client.read-headers reads from a Connection in a loop, accumulating
 ; data until the \r\n\r\n header boundary is found. These functions
 ; simulate that loop with pre-built chunks.
-; ----------------------------------------------------------------
 
 ; Before this PR: String.concat in a loop (quadratic)
 (defn read-headers-concat [chunks]
@@ -51,13 +47,9 @@
       (set! i (+ i 1)))
     (StringBuf.delete sb)))
 
-; ----------------------------------------------------------------
-; drain-stream accumulation pattern
-;
 ; Client.drain-stream reads all chunks from a ResponseStream and
 ; concatenates them into the final response body. This is where the
 ; quadratic-to-linear improvement is most significant.
-; ----------------------------------------------------------------
 
 ; Before this PR: String.concat in a loop (quadratic)
 (defn drain-concat [chunks]
@@ -72,8 +64,6 @@
     (for [i 0 (Array.length chunks)]
       (StringBuf.append-str &sb (Array.unsafe-nth chunks i)))
     (StringBuf.delete sb)))
-
-; ----------------------------------------------------------------
 
 (defn main []
   (do
