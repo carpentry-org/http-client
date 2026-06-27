@@ -655,13 +655,8 @@ See `RequestConfig` for timeout and redirect details.")
             &cl-vals)]
       (request-with-config "POST" url hdrs &body config)))
 
-  ; =========================================================================
-  ; Cookie jar — automatic cookie management
-  ; =========================================================================
-
   (hidden request-stream-with-jar-)
   (private request-stream-with-jar-)
-  ; Like request-stream- but stores/replays cookies via a CookieJar.
   (defn request-stream-with-jar- [verb url headers body config jar]
     (let-do [cur-verb @verb
              cur-url @url

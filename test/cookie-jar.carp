@@ -4,10 +4,6 @@
 (use Test)
 
 (deftest test
-  ; =========================================================================
-  ; CookieJar basics
-  ; =========================================================================
-
   (assert-equal test
     0
     (CookieJar.size &(CookieJar.create))
@@ -27,10 +23,6 @@
                                       (SameSite.Lax)))
       (CookieJar.size &jar))
     "store! adds a cookie")
-
-  ; =========================================================================
-  ; Deduplication
-  ; =========================================================================
 
   (assert-equal test
     1
@@ -79,10 +71,6 @@
                                       (SameSite.Lax)))
       (CookieJar.size &jar))
     "same name but different domain keeps both")
-
-  ; =========================================================================
-  ; Domain matching
-  ; =========================================================================
 
   (assert-equal test
     1
@@ -159,10 +147,6 @@
       (Array.length &(CookieJar.matching &jar "https://example.com/")))
     "subdomain cookie does not match parent domain")
 
-  ; =========================================================================
-  ; Path matching
-  ; =========================================================================
-
   (assert-equal test
     1
     (let-do [jar (CookieJar.create)]
@@ -223,10 +207,6 @@
       (Array.length &(CookieJar.matching &jar "https://example.com/anything")))
     "root path matches everything")
 
-  ; =========================================================================
-  ; Secure flag
-  ; =========================================================================
-
   (assert-equal test
     0
     (let-do [jar (CookieJar.create)]
@@ -256,10 +236,6 @@
                                       (SameSite.Lax)))
       (Array.length &(CookieJar.matching &jar "https://example.com/")))
     "secure cookie sent over HTTPS")
-
-  ; =========================================================================
-  ; Cookie header generation
-  ; =========================================================================
 
   (assert-equal test
     &(Maybe.Just @"name=value")
@@ -305,10 +281,6 @@
       (Maybe.nothing? &(CookieJar.cookie-header &jar "https://example.com/")))
     "cookie-header returns Nothing for empty jar")
 
-  ; =========================================================================
-  ; apply-to-headers
-  ; =========================================================================
-
   (assert-true test
     (let-do [jar (CookieJar.create)]
       (CookieJar.store! &jar
@@ -338,10 +310,6 @@
             custom-vs &(Map.get-with-default &hdrs &@"X-Custom" &[])]
         (and (= (Array.length cookie-vs) 0) (> (Array.length custom-vs) 0))))
     "apply-to-headers preserves existing headers when no cookies match")
-
-  ; =========================================================================
-  ; store-response!
-  ; =========================================================================
 
   (assert-equal test
     1
@@ -383,10 +351,6 @@
       (Array.length &(CookieJar.matching &jar "https://example.com/")))
     "store-response! defaults domain from URL so cookies match")
 
-  ; =========================================================================
-  ; clear!
-  ; =========================================================================
-
   (assert-equal test
     0
     (let-do [jar (CookieJar.create)]
@@ -402,10 +366,6 @@
       (CookieJar.clear! &jar)
       (CookieJar.size &jar))
     "clear! removes all cookies")
-
-  ; =========================================================================
-  ; Integration: cookie round-trip via httpbin
-  ; =========================================================================
 
   (assert-true test
     (let-do [jar (CookieJar.create)]
