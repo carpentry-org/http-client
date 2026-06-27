@@ -82,6 +82,27 @@ For chunked or long-running responses, use `Client.request-stream` to get a
 implements the `poll` interface from the
 [streams](https://github.com/carpentry-org/streams) library.
 
+### Cookie jar
+
+Use a `CookieJar` to store cookies from responses and replay them on
+subsequent requests automatically:
+
+```clojure
+(let-do [jar (CookieJar.create)]
+  (match (Client.get-with-jar "https://example.com/login" &jar)
+    (Result.Success r) (println* (Response.body &r))
+    (Result.Error e) (IO.errorln &e))
+  ; jar now has cookies from the login response
+  (match (Client.get-with-jar "https://example.com/dashboard" &jar)
+    (Result.Success r) (println* (Response.body &r))
+    (Result.Error e) (IO.errorln &e)))
+```
+
+The jar handles domain matching (RFC 6265 suffix rules), path matching,
+Secure flag enforcement, and expiry. Cookies are deduplicated by
+name+domain+path. During redirects, cookies from every hop are stored and
+re-applied for each new URL.
+
 ## API
 
 ### `Client`
@@ -106,6 +127,16 @@ implements the `poll` interface from the
 | `Client.patch-with-config url headers body config` | PATCH with request config |
 | `Client.request-with-config verb url headers body config` | Generic request with request config |
 | `Client.request-stream-with-config verb url headers body config` | Streaming with request config |
+| `Client.get-with-jar url jar` | GET with cookie jar |
+| `Client.post-with-jar url headers body jar` | POST with cookie jar |
+| `Client.put-with-jar url headers body jar` | PUT with cookie jar |
+| `Client.del-with-jar url jar` | DELETE with cookie jar |
+| `Client.head-with-jar url jar` | HEAD with cookie jar |
+| `Client.patch-with-jar url headers body jar` | PATCH with cookie jar |
+| `Client.request-with-jar verb url headers body jar` | Generic request with cookie jar |
+| `Client.request-stream-with-jar verb url headers body jar` | Streaming with cookie jar |
+| `Client.request-with-jar-and-config verb url headers body jar config` | Generic request with jar and config |
+| `Client.request-stream-with-jar-and-config verb url headers body jar config` | Streaming with jar and config |
 
 All return `(Result Response String)` (or `(Result ResponseStream String)` for the streaming variants).
 
@@ -120,6 +151,19 @@ dropped. For 307/308 responses the original method and body are preserved. Use t
 |----------|---------|
 | `RequestConfig.init connect-timeout read-timeout max-redirects` | Create a config (timeouts in seconds, 0 = none) |
 | `RequestConfig.default` | Config with no timeouts and 10 max redirects |
+
+### `CookieJar`
+
+| Function | Purpose |
+|----------|---------|
+| `CookieJar.create` | Create an empty jar |
+| `CookieJar.store! jar cookie` | Store a cookie, replacing duplicates by name+domain+path |
+| `CookieJar.store-response! jar response url` | Store cookies from a response, defaulting domain from URL |
+| `CookieJar.matching jar url` | Return cookies matching the URL by domain, path, security, and expiry |
+| `CookieJar.cookie-header jar url` | Build a `Cookie` header value, or `Nothing` if no cookies match |
+| `CookieJar.apply-to-headers jar url headers` | Add a `Cookie` header to the headers map |
+| `CookieJar.size jar` | Number of stored cookies |
+| `CookieJar.clear! jar` | Remove all cookies |
 
 ### `Connection`
 

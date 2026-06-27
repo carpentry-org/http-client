@@ -3,6 +3,8 @@
 
 (use Test)
 
+(load "cookie-jar.carp")
+
 (deftest test
   (assert-true test
     (Result.success? &(Client.get "https://example.com/"))
@@ -328,4 +330,6 @@
       (Result.Success r)
         (String.contains-string? (Response.body &r) "file contents")
       _ false)
-    "post-multipart file part is echoed back by httpbin"))
+    "post-multipart file part is echoed back by httpbin")
+
+  (set! test (cookie-jar-tests test)))

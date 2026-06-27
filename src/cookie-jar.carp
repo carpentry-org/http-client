@@ -1,0 +1,123 @@
+; Cookie jar for automatic HTTP cookie management.
+; Stores cookies from Set-Cookie response headers and replays matching
+; cookies on subsequent requests by domain, path, and expiry.
+
+(doc CookieJar "stores cookies and replays them on matching requests.
+
+Create a jar with `CookieJar.create`, then pass it to `Client.get-with-jar`
+and similar functions:
+
+```
+(let-do [jar (CookieJar.create)]
+  (match (Client.get-with-jar \"https://example.com/\" &jar)
+    (Result.Success r) (println* (Response.body &r))
+    (Result.Error e) (IO.errorln &e))
+  ; jar now has cookies; they are sent on the next request automatically
+  (match (Client.get-with-jar \"https://example.com/page\" &jar)
+    (Result.Success r) (println* (Response.body &r))
+    (Result.Error e) (IO.errorln &e)))
+```")
+(deftype CookieJar [cookies (Array Cookie)])
+
+(defmodule CookieJar
+  (doc create "creates an empty cookie jar.")
+  (defn create [] (init []))
+
+  (hidden domain-matches?)
+  (private domain-matches?)
+  (defn domain-matches? [cookie-domain host]
+    (let [cd (String.ascii-to-lower &(String.trim cookie-domain))
+          h (String.ascii-to-lower host)
+          norm (if (String.starts-with? &cd ".") (String.suffix &cd 1) @&cd)]
+      (or (= &norm &h) (String.ends-with? &h &(fmt ".%s" &norm)))))
+
+  (hidden path-matches?)
+  (private path-matches?)
+  (defn path-matches? [cookie-path request-path]
+    (or (= cookie-path request-path)
+        (if (String.ends-with? cookie-path "/")
+          (String.starts-with? request-path cookie-path)
+          (String.starts-with? request-path &(fmt "%s/" cookie-path)))))
+
+  (doc store! "stores a cookie, replacing any with the same name, domain,
+and path.")
+  (defn store! [jar c]
+    (let [filtered (Array.reduce
+            &(fn [acc existing]
+              (if (and
+                  (= (Cookie.name existing) (Cookie.name c))
+                  (and
+                    (= (Cookie.domain existing) (Cookie.domain c))
+                    (= (Cookie.path existing) (Cookie.path c))))
+                acc
+                (Array.push-back acc @existing)))
+            (the (Array Cookie) [])
+            (cookies jar))
+          new-arr (Array.push-back filtered @c)]
+      (set-cookies! jar new-arr)))
+
+  (doc store-response! "stores cookies from a response. The URL provides the
+default domain for cookies without a Domain attribute.")
+  (defn store-response! [jar resp url]
+    (match (URI.parse url)
+      (Result.Error _) ()
+      (Result.Success uri)
+        (let [host (Maybe.from @(URI.host &uri) @"")]
+          (for [i 0 (Array.length (Response.cookies resp))]
+            (let [raw @(Array.unsafe-nth (Response.cookies resp) i)
+                  c (if (Maybe.nothing? (Cookie.domain &raw))
+                    (Cookie.set-domain raw (Maybe.Just @&host))
+                    raw)]
+              (store! jar &c))))))
+
+  (doc matching "returns cookies matching the given URL by domain, path,
+security, and expiry.")
+  (defn matching [jar url]
+    (match (URI.parse url)
+      (Result.Error _) []
+      (Result.Success uri)
+        (let [host (Maybe.from @(URI.host &uri) @"")
+              path (Maybe.from @(URI.path &uri) @"/")
+              scheme (Maybe.from @(URI.scheme &uri) @"http")
+              is-secure (= &scheme "https")]
+          (Array.reduce
+            &(fn [acc c]
+              (let [d (Maybe.from @(Cookie.domain c) @"")]
+                (cond
+                  (Cookie.expired? c) acc
+                  (and @(Cookie.secure c) (not is-secure)) acc
+                  (Maybe.nothing? (Cookie.domain c)) acc
+                  (not (domain-matches? &d &host)) acc
+                  (not (path-matches? (Cookie.path c) &path)) acc
+                  (Array.push-back acc @c))))
+            (the (Array Cookie) [])
+            (cookies jar)))))
+
+  (doc cookie-header "builds a Cookie header value for the URL, or Nothing
+if no cookies match.")
+  (defn cookie-header [jar url]
+    (let [matched (matching jar url)]
+      (if (Array.empty? &matched)
+        (Maybe.Nothing)
+        (let-do [sb (StringBuf.create)]
+          (for [i 0 (Array.length &matched)]
+            (do
+              (when (> i 0) (StringBuf.append-str &sb "; "))
+              (StringBuf.append-str &sb
+                                    &(Cookie.kv (Array.unsafe-nth &matched i)))))
+          (let-do [s (StringBuf.to-string &sb)]
+            (StringBuf.delete sb)
+            (Maybe.Just s))))))
+
+  (doc apply-to-headers "adds a Cookie header for matching cookies to the
+headers map. Returns headers unchanged if no cookies match.")
+  (defn apply-to-headers [jar url headers]
+    (match (cookie-header jar url)
+      (Maybe.Nothing) @headers
+      (Maybe.Just hdr) (Map.put @headers &@"Cookie" &[hdr])))
+
+  (doc size "returns the number of cookies stored.")
+  (defn size [jar] (Array.length (cookies jar)))
+
+  (doc clear! "removes all cookies.")
+  (defn clear! [jar] (set-cookies! jar (the (Array Cookie) []))))

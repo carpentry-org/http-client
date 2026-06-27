@@ -4,6 +4,7 @@
 (load "git@github.com:carpentry-org/strbuf@0.1.0")
 
 (load "src/multipart.carp")
+(load "src/cookie-jar.carp")
 
 (relative-include "src/chunked.h")
 
@@ -652,4 +653,165 @@ See `RequestConfig` for timeout and redirect details.")
             (Map.put headers &@"Content-Type" &ct-vals)
             &@"Content-Length"
             &cl-vals)]
-      (request-with-config "POST" url hdrs &body config))))
+      (request-with-config "POST" url hdrs &body config)))
+
+  (hidden request-stream-with-jar-)
+  (private request-stream-with-jar-)
+  (defn request-stream-with-jar- [verb url headers body config jar]
+    (let-do [cur-verb @verb
+             cur-url @url
+             cur-body @body
+             cur-headers headers
+             max-redir @(RequestConfig.max-redirects config)
+             remaining max-redir
+             result (the (Result ResponseStream String) (Result.Error @""))]
+      (while-do true
+        (let [with-cookies (CookieJar.apply-to-headers jar &cur-url &cur-headers)]
+          (match (build-and-send &cur-verb
+                                 &cur-url
+                                 with-cookies
+                                 &cur-body
+                                 config)
+            (Result.Error e) (do (set! result (Result.Error e)) (break))
+            (Result.Success conn)
+              (match (read-headers &conn)
+                (Result.Error e)
+                  (do
+                    (Connection.close conn)
+                    (set! result (Result.Error e))
+                    (break))
+                (Result.Success pair)
+                  (let [resp @(Pair.a &pair)
+                        code @(Response.code &resp)]
+                    (CookieJar.store-response! jar &resp &cur-url)
+                    (if (redirect? code)
+                      (if (> remaining 0)
+                        (match (Response.header &resp "Location")
+                          (Maybe.Nothing)
+                            (do
+                              (Connection.close conn)
+                              (set! result
+                                    (Result.Error @"redirect without Location header"))
+                              (break))
+                          (Maybe.Just location)
+                            (let [trimmed (Pattern.trim &location)]
+                              (if (String.empty? &trimmed)
+                                (do
+                                  (Connection.close conn)
+                                  (set! result
+                                        (Result.Error @"redirect with empty Location header"))
+                                  (break))
+                                (let-do [new-url (resolve-location &cur-url
+                                                                   &trimmed)]
+                                  (Connection.close conn)
+                                  (when (cross-origin? &cur-url &new-url)
+                                    (set! cur-headers
+                                          (strip-sensitive-headers &cur-headers)))
+                                  (set! cur-url new-url)
+                                  (let-do [new-verb (redirect-verb code
+                                                                   &cur-verb)]
+                                    (when-do (/= &new-verb &cur-verb)
+                                      (set! cur-body @"")
+                                      (set! cur-headers
+                                            (remove-content-length &cur-headers)))
+                                    (set! cur-verb new-verb))
+                                  (set! remaining (Int.dec remaining))))))
+                        (do
+                          (Connection.close conn)
+                          (set! result
+                                (Result.Error
+                                  (fmt "too many redirects (max %d)" max-redir)))
+                          (break)))
+                      (let-do [leftover @(Pair.b &pair)
+                               is-chunked (match (Response.header &resp
+                                                                  "Transfer-Encoding")
+                                 (Maybe.Just te)
+                                   (String.contains-string? &te "chunked")
+                                 _ false)]
+                        (set! result
+                              (Result.Success
+                                (ResponseStream.init conn
+                                                     leftover
+                                                     @""
+                                                     is-chunked
+                                                     false
+                                                     code
+                                                     resp)))
+                        (break))))))))
+      result))
+
+  (doc request-stream-with-jar "sends an HTTP request using the given
+`CookieJar`. Matching cookies are sent automatically, and Set-Cookie
+response headers are stored in the jar. Returns a `ResponseStream`.
+Follows up to `default-max-redirects` redirects.")
+  (defn request-stream-with-jar [verb url headers body jar]
+    (let [cfg (RequestConfig.default)]
+      (request-stream-with-jar- verb url headers body &cfg jar)))
+
+  (doc request-stream-with-jar-and-config "sends an HTTP request using the
+given `CookieJar` and `RequestConfig`. Returns a `ResponseStream`.")
+  (defn request-stream-with-jar-and-config [verb url headers body jar config]
+    (request-stream-with-jar- verb url headers body config jar))
+
+  (doc request-with-jar "sends an HTTP request using the given `CookieJar`.
+Matching cookies are sent automatically, and Set-Cookie response headers
+are stored in the jar. Returns `(Result Response String)`.
+Follows up to `default-max-redirects` redirects.")
+  (defn request-with-jar [verb url headers body jar]
+    (match (request-stream-with-jar verb url headers body jar)
+      (Result.Error e) (Result.Error e)
+      (Result.Success stream)
+        (let-do [decoded-body (drain-stream &stream)
+                 base-resp @(ResponseStream.parsed-response &stream)]
+          (ResponseStream.close stream)
+          (Result.Success (Response.set-body base-resp decoded-body)))))
+
+  (doc request-with-jar-and-config "sends an HTTP request using the given
+`CookieJar` and `RequestConfig`. Returns `(Result Response String)`.")
+  (defn request-with-jar-and-config [verb url headers body jar config]
+    (match (request-stream-with-jar-and-config verb url headers body jar config)
+      (Result.Error e) (Result.Error e)
+      (Result.Success stream)
+        (let-do [decoded-body (drain-stream &stream)
+                 base-resp @(ResponseStream.parsed-response &stream)]
+          (ResponseStream.close stream)
+          (Result.Success (Response.set-body base-resp decoded-body)))))
+
+  (doc get-with-jar "performs an HTTP GET request using the given `CookieJar`.
+Returns `(Result Response String)`.")
+  (defn get-with-jar [url jar]
+    (request-with-jar "GET" url (the (Map String (Array String)) {}) "" jar))
+
+  (doc head-with-jar "performs an HTTP HEAD request using the given `CookieJar`.
+Returns `(Result Response String)`.")
+  (defn head-with-jar [url jar]
+    (request-with-jar "HEAD" url (the (Map String (Array String)) {}) "" jar))
+
+  (hidden body-request-with-jar)
+  (private body-request-with-jar)
+  (defn body-request-with-jar [verb url headers body jar]
+    (let [cl-vals [(Int.str (String.length body))]
+          hdrs (Map.put headers &@"Content-Length" &cl-vals)]
+      (request-with-jar verb url hdrs body jar)))
+
+  (doc post-with-jar "performs an HTTP POST request using the given `CookieJar`.
+Returns `(Result Response String)`.")
+  (defn post-with-jar [url headers body jar]
+    (body-request-with-jar "POST" url headers body jar))
+
+  (doc put-with-jar "performs an HTTP PUT request using the given `CookieJar`.
+Returns `(Result Response String)`.")
+  (defn put-with-jar [url headers body jar]
+    (body-request-with-jar "PUT" url headers body jar))
+
+  (doc del-with-jar
+    "performs an HTTP DELETE request using the given `CookieJar`.
+Returns `(Result Response String)`.")
+  (defn del-with-jar [url jar]
+    (request-with-jar "DELETE" url (the (Map String (Array String)) {}) "" jar))
+
+  (doc patch-with-jar
+    "performs an HTTP PATCH request using the given `CookieJar`.
+Returns `(Result Response String)`.")
+  (defn patch-with-jar [url headers body jar]
+    (body-request-with-jar "PATCH" url headers body jar)))
