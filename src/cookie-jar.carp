@@ -82,17 +82,14 @@ security, and expiry.")
               is-secure (= &scheme "https")]
           (Array.reduce
             &(fn [acc c]
-              (if (Cookie.expired? c)
-                acc
-                (if (and @(Cookie.secure c) (not is-secure))
-                  acc
-                  (match-ref (Cookie.domain c)
-                    (Maybe.Nothing) acc
-                    (Maybe.Just d)
-                      (if (and (domain-matches? d &host)
-                               (path-matches? (Cookie.path c) &path))
-                        (Array.push-back acc @c)
-                        acc)))))
+              (let [d (Maybe.from @(Cookie.domain c) @"")]
+                (cond
+                  (Cookie.expired? c) acc
+                  (and @(Cookie.secure c) (not is-secure)) acc
+                  (Maybe.nothing? (Cookie.domain c)) acc
+                  (not (domain-matches? &d &host)) acc
+                  (not (path-matches? (Cookie.path c) &path)) acc
+                  (Array.push-back acc @c))))
             (the (Array Cookie) [])
             (cookies jar)))))
 

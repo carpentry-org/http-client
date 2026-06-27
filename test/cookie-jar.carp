@@ -1,387 +1,448 @@
-(load "Test.carp")
-(load "../http-client.carp")
+(defn cookie-jar-tests [test]
+  (do
+    (assert-equal test
+      0
+      (CookieJar.size &(CookieJar.create))
+      "empty jar has size 0")
 
-(use Test)
+    (assert-equal test
+      1
+      (let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"name"
+                                        @"value"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (CookieJar.size &jar))
+      "store! adds a cookie")
 
-(deftest test
-  (assert-equal test
-    0
-    (CookieJar.size &(CookieJar.create))
-    "empty jar has size 0")
+    (assert-equal test
+      1
+      (let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"name"
+                                        @"val1"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (CookieJar.store! &jar
+                          &(Cookie.init @"name"
+                                        @"val2"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (CookieJar.size &jar))
+      "store! replaces cookie with same name/domain/path")
 
-  (assert-equal test
-    1
-    (let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"name"
-                                      @"value"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"example.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (CookieJar.size &jar))
-    "store! adds a cookie")
+    (assert-equal test
+      2
+      (let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"name"
+                                        @"val1"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"a.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (CookieJar.store! &jar
+                          &(Cookie.init @"name"
+                                        @"val2"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"b.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (CookieJar.size &jar))
+      "same name but different domain keeps both")
 
-  (assert-equal test
-    1
-    (let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"name"
-                                      @"val1"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"example.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (CookieJar.store! &jar
-                        &(Cookie.init @"name"
-                                      @"val2"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"example.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (CookieJar.size &jar))
-    "store! replaces cookie with same name/domain/path")
+    (assert-equal test
+      1
+      (let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"n"
+                                        @"v"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (Array.length &(CookieJar.matching &jar "https://example.com/")))
+      "matches exact domain")
 
-  (assert-equal test
-    2
-    (let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"name"
-                                      @"val1"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"a.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (CookieJar.store! &jar
-                        &(Cookie.init @"name"
-                                      @"val2"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"b.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (CookieJar.size &jar))
-    "same name but different domain keeps both")
+    (assert-equal test
+      1
+      (let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"n"
+                                        @"v"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (Array.length &(CookieJar.matching &jar "https://sub.example.com/")))
+      "matches subdomain")
 
-  (assert-equal test
-    1
-    (let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"n"
-                                      @"v"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"example.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (Array.length &(CookieJar.matching &jar "https://example.com/")))
-    "matches exact domain")
+    (assert-equal test
+      1
+      (let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"n"
+                                        @"v"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @".example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (Array.length &(CookieJar.matching &jar "https://sub.example.com/")))
+      "matches subdomain with leading-dot domain")
 
-  (assert-equal test
-    1
-    (let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"n"
-                                      @"v"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"example.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (Array.length &(CookieJar.matching &jar "https://sub.example.com/")))
-    "matches subdomain")
+    (assert-equal test
+      0
+      (let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"n"
+                                        @"v"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (Array.length &(CookieJar.matching &jar "https://other.com/")))
+      "does not match different domain")
 
-  (assert-equal test
-    1
-    (let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"n"
-                                      @"v"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @".example.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (Array.length &(CookieJar.matching &jar "https://sub.example.com/")))
-    "matches subdomain with leading-dot domain")
+    (assert-equal test
+      0
+      (let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"n"
+                                        @"v"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"sub.example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (Array.length &(CookieJar.matching &jar "https://example.com/")))
+      "subdomain cookie does not match parent domain")
 
-  (assert-equal test
-    0
-    (let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"n"
-                                      @"v"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"example.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (Array.length &(CookieJar.matching &jar "https://other.com/")))
-    "does not match different domain")
+    (assert-equal test
+      1
+      (let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"n"
+                                        @"v"
+                                        @"/api"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (Array.length &(CookieJar.matching &jar "https://example.com/api/users")))
+      "matches path prefix")
 
-  (assert-equal test
-    0
-    (let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"n"
-                                      @"v"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"sub.example.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (Array.length &(CookieJar.matching &jar "https://example.com/")))
-    "subdomain cookie does not match parent domain")
+    (assert-equal test
+      0
+      (let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"n"
+                                        @"v"
+                                        @"/api"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (Array.length &(CookieJar.matching &jar "https://example.com/other")))
+      "does not match different path")
 
-  (assert-equal test
-    1
-    (let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"n"
-                                      @"v"
-                                      @"/api"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"example.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (Array.length &(CookieJar.matching &jar "https://example.com/api/users")))
-    "matches path prefix")
+    (assert-equal test
+      0
+      (let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"n"
+                                        @"v"
+                                        @"/api"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (Array.length &(CookieJar.matching &jar "https://example.com/apiary")))
+      "path /api does not match /apiary")
 
-  (assert-equal test
-    0
-    (let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"n"
-                                      @"v"
-                                      @"/api"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"example.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (Array.length &(CookieJar.matching &jar "https://example.com/other")))
-    "does not match different path")
+    (assert-equal test
+      1
+      (let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"n"
+                                        @"v"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (Array.length &(CookieJar.matching &jar "https://example.com/anything")))
+      "root path matches everything")
 
-  (assert-equal test
-    0
-    (let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"n"
-                                      @"v"
-                                      @"/api"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"example.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (Array.length &(CookieJar.matching &jar "https://example.com/apiary")))
-    "path /api does not match /apiary")
+    (assert-equal test
+      0
+      (let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"n"
+                                        @"v"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"example.com")
+                                        true
+                                        false
+                                        (SameSite.Lax)))
+        (Array.length &(CookieJar.matching &jar "http://example.com/")))
+      "secure cookie not sent over HTTP")
 
-  (assert-equal test
-    1
-    (let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"n"
-                                      @"v"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"example.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (Array.length &(CookieJar.matching &jar "https://example.com/anything")))
-    "root path matches everything")
+    (assert-equal test
+      1
+      (let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"n"
+                                        @"v"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"example.com")
+                                        true
+                                        false
+                                        (SameSite.Lax)))
+        (Array.length &(CookieJar.matching &jar "https://example.com/")))
+      "secure cookie sent over HTTPS")
 
-  (assert-equal test
-    0
-    (let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"n"
-                                      @"v"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"example.com")
-                                      true
-                                      false
-                                      (SameSite.Lax)))
-      (Array.length &(CookieJar.matching &jar "http://example.com/")))
-    "secure cookie not sent over HTTP")
+    (assert-equal test
+      &(Maybe.Just @"name=value")
+      &(let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"name"
+                                        @"value"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (CookieJar.cookie-header &jar "https://example.com/"))
+      "cookie-header produces name=value")
 
-  (assert-equal test
-    1
-    (let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"n"
-                                      @"v"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"example.com")
-                                      true
-                                      false
-                                      (SameSite.Lax)))
-      (Array.length &(CookieJar.matching &jar "https://example.com/")))
-    "secure cookie sent over HTTPS")
+    (assert-equal test
+      &(Maybe.Just @"a=1; b=2")
+      &(let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"a"
+                                        @"1"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (CookieJar.store! &jar
+                          &(Cookie.init @"b"
+                                        @"2"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (CookieJar.cookie-header &jar "https://example.com/"))
+      "cookie-header joins multiple cookies with semicolon")
 
-  (assert-equal test
-    &(Maybe.Just @"name=value")
-    &(let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"name"
-                                      @"value"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"example.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (CookieJar.cookie-header &jar "https://example.com/"))
-    "cookie-header produces name=value")
+    (assert-true test
+      (let-do [jar (CookieJar.create)]
+        (Maybe.nothing? &(CookieJar.cookie-header &jar "https://example.com/")))
+      "cookie-header returns Nothing for empty jar")
 
-  (assert-equal test
-    &(Maybe.Just @"a=1; b=2")
-    &(let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"a"
-                                      @"1"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"example.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (CookieJar.store! &jar
-                        &(Cookie.init @"b"
-                                      @"2"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"example.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (CookieJar.cookie-header &jar "https://example.com/"))
-    "cookie-header joins multiple cookies with semicolon")
+    (assert-true test
+      (let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"s"
+                                        @"abc"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (let [hdrs (CookieJar.apply-to-headers &jar
+                                               "https://example.com/"
+                                               &(the (Map String (Array String))
+                                                     {}))
+              vs &(Map.get-with-default &hdrs &@"Cookie" &[])]
+          (and (> (Array.length vs) 0)
+               (String.contains-string? (Array.unsafe-first vs) "s=abc"))))
+      "apply-to-headers adds Cookie header")
 
-  (assert-true test
-    (let-do [jar (CookieJar.create)]
-      (Maybe.nothing? &(CookieJar.cookie-header &jar "https://example.com/")))
-    "cookie-header returns Nothing for empty jar")
+    (assert-true test
+      (let-do [jar (CookieJar.create)]
+        (let [hdrs (CookieJar.apply-to-headers &jar
+                                               "https://example.com/"
+                                               &{@"X-Custom" [@"val"]})
+              cookie-vs &(Map.get-with-default &hdrs &@"Cookie" &[])
+              custom-vs &(Map.get-with-default &hdrs &@"X-Custom" &[])]
+          (and (= (Array.length cookie-vs) 0) (> (Array.length custom-vs) 0))))
+      "apply-to-headers preserves existing headers when no cookies match")
 
-  (assert-true test
-    (let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"s"
-                                      @"abc"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"example.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (let [hdrs (CookieJar.apply-to-headers &jar
-                                             "https://example.com/"
-                                             &(the (Map String (Array String))
-                                                   {}))
-            vs &(Map.get-with-default &hdrs &@"Cookie" &[])]
-        (and (> (Array.length vs) 0)
-             (String.contains-string? (Array.unsafe-first vs) "s=abc"))))
-    "apply-to-headers adds Cookie header")
+    (assert-equal test
+      1
+      (let-do [jar (CookieJar.create)
+               resp (Response.init 200
+                                   @"OK"
+                                   @"HTTP/1.1"
+                                   [(Cookie.init @"sid"
+                                                 @"abc"
+                                                 @"/"
+                                                 (Maybe.Nothing)
+                                                 (Maybe.Nothing)
+                                                 false
+                                                 false
+                                                 (SameSite.Lax))]
+                                   (the (Map String (Array String)) {})
+                                   @"")]
+        (CookieJar.store-response! &jar &resp "https://example.com/login")
+        (CookieJar.size &jar))
+      "store-response! extracts cookies from response")
 
-  (assert-true test
-    (let-do [jar (CookieJar.create)]
-      (let [hdrs (CookieJar.apply-to-headers &jar
-                                             "https://example.com/"
-                                             &{@"X-Custom" [@"val"]})
-            cookie-vs &(Map.get-with-default &hdrs &@"Cookie" &[])
-            custom-vs &(Map.get-with-default &hdrs &@"X-Custom" &[])]
-        (and (= (Array.length cookie-vs) 0) (> (Array.length custom-vs) 0))))
-    "apply-to-headers preserves existing headers when no cookies match")
+    (assert-equal test
+      1
+      (let-do [jar (CookieJar.create)
+               resp (Response.init 200
+                                   @"OK"
+                                   @"HTTP/1.1"
+                                   [(Cookie.init @"sid"
+                                                 @"abc"
+                                                 @"/"
+                                                 (Maybe.Nothing)
+                                                 (Maybe.Nothing)
+                                                 false
+                                                 false
+                                                 (SameSite.Lax))]
+                                   (the (Map String (Array String)) {})
+                                   @"")]
+        (CookieJar.store-response! &jar &resp "https://example.com/login")
+        (Array.length &(CookieJar.matching &jar "https://example.com/")))
+      "store-response! defaults domain from URL so cookies match")
 
-  (assert-equal test
-    1
-    (let-do [jar (CookieJar.create)
-             resp (Response.init 200
-                                 @"OK"
-                                 @"HTTP/1.1"
-                                 [(Cookie.init @"sid"
-                                               @"abc"
-                                               @"/"
-                                               (Maybe.Nothing)
-                                               (Maybe.Nothing)
-                                               false
-                                               false
-                                               (SameSite.Lax))]
-                                 (the (Map String (Array String)) {})
-                                 @"")]
-      (CookieJar.store-response! &jar &resp "https://example.com/login")
-      (CookieJar.size &jar))
-    "store-response! extracts cookies from response")
+    (assert-equal test
+      0
+      (let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"n"
+                                        @"v"
+                                        @"/"
+                                        (Maybe.Nothing)
+                                        (Maybe.Just @"example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (CookieJar.clear! &jar)
+        (CookieJar.size &jar))
+      "clear! removes all cookies")
 
-  (assert-equal test
-    1
-    (let-do [jar (CookieJar.create)
-             resp (Response.init 200
-                                 @"OK"
-                                 @"HTTP/1.1"
-                                 [(Cookie.init @"sid"
-                                               @"abc"
-                                               @"/"
-                                               (Maybe.Nothing)
-                                               (Maybe.Nothing)
-                                               false
-                                               false
-                                               (SameSite.Lax))]
-                                 (the (Map String (Array String)) {})
-                                 @"")]
-      (CookieJar.store-response! &jar &resp "https://example.com/login")
-      (Array.length &(CookieJar.matching &jar "https://example.com/")))
-    "store-response! defaults domain from URL so cookies match")
+    (assert-equal test
+      0
+      (let-do [jar (CookieJar.create)]
+        (CookieJar.store! &jar
+                          &(Cookie.init @"n"
+                                        @"v"
+                                        @"/"
+                                        (Maybe.Just
+                                          (Datetime.init 2020
+                                                         1
+                                                         1
+                                                         (Maybe.Just 0)
+                                                         (Maybe.Just 0)
+                                                         (Maybe.Just 0)
+                                                         (Maybe.Nothing)
+                                                         (Maybe.Nothing)))
+                                        (Maybe.Just @"example.com")
+                                        false
+                                        false
+                                        (SameSite.Lax)))
+        (Array.length &(CookieJar.matching &jar "https://example.com/")))
+      "expired cookie is not returned by matching")
 
-  (assert-equal test
-    0
-    (let-do [jar (CookieJar.create)]
-      (CookieJar.store! &jar
-                        &(Cookie.init @"n"
-                                      @"v"
-                                      @"/"
-                                      (Maybe.Nothing)
-                                      (Maybe.Just @"example.com")
-                                      false
-                                      false
-                                      (SameSite.Lax)))
-      (CookieJar.clear! &jar)
-      (CookieJar.size &jar))
-    "clear! removes all cookies")
+    (assert-equal test
+      1
+      (let-do [jar (CookieJar.create)
+               resp (Response.init 200
+                                   @"OK"
+                                   @"HTTP/1.1"
+                                   [(Cookie.init @"sid"
+                                                 @"abc"
+                                                 @"/"
+                                                 (Maybe.Nothing)
+                                                 (Maybe.Just @"other.com")
+                                                 false
+                                                 false
+                                                 (SameSite.Lax))]
+                                   (the (Map String (Array String)) {})
+                                   @"")]
+        (CookieJar.store-response! &jar &resp "https://example.com/login")
+        (Array.length &(CookieJar.matching &jar "https://other.com/")))
+      "store-response! preserves explicit Domain attribute")
 
-  (assert-true test
-    (let-do [jar (CookieJar.create)]
-      (match (Client.get-with-jar
-          "https://httpbin.org/cookies/set/testcookie/testvalue"
-          &jar)
-        (Result.Success r)
-          (String.contains-string? (Response.body &r) "testcookie")
-        _ false))
-    "cookie jar stores and replays cookies through redirect")
+    (assert-equal test
+      0
+      (let-do [jar (CookieJar.create)
+               resp (Response.init 200
+                                   @"OK"
+                                   @"HTTP/1.1"
+                                   [(Cookie.init @"sid"
+                                                 @"abc"
+                                                 @"/"
+                                                 (Maybe.Nothing)
+                                                 (Maybe.Just @"other.com")
+                                                 false
+                                                 false
+                                                 (SameSite.Lax))]
+                                   (the (Map String (Array String)) {})
+                                   @"")]
+        (CookieJar.store-response! &jar &resp "https://example.com/login")
+        (Array.length &(CookieJar.matching &jar "https://example.com/")))
+      "explicit Domain cookie does not match request host")
 
-  (assert-true test
-    (let-do [jar (CookieJar.create)]
-      (match (Client.get-with-jar
-          "https://httpbin.org/cookies/set/mycookie/myvalue"
-          &jar)
-        _ ())
-      (> (CookieJar.size &jar) 0))
-    "jar has cookies after visiting set-cookie endpoint"))
+    (assert-true test
+      (let-do [jar (CookieJar.create)]
+        (match (Client.get-with-jar
+            "https://httpbin.org/cookies/set/testcookie/testvalue"
+            &jar)
+          (Result.Success r)
+            (String.contains-string? (Response.body &r) "testcookie")
+          _ false))
+      "cookie jar stores and replays cookies through redirect")
+
+    (assert-true test
+      (let-do [jar (CookieJar.create)]
+        (match (Client.get-with-jar
+            "https://httpbin.org/cookies/set/mycookie/myvalue"
+            &jar)
+          _ ())
+        (> (CookieJar.size &jar) 0))
+      "jar has cookies after visiting set-cookie endpoint")
+
+    test))

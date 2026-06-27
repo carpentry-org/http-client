@@ -37,5 +37,5 @@ transparently over plain TCP or TLS-encrypted streams.
 Requires OpenSSL for HTTPS support (via the `tls` library).
 Plain HTTP works without OpenSSL.")
 
-(save-docs Client Connection)
+(save-docs Client Connection CookieJar)
 (quit)
