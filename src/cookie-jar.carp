@@ -77,7 +77,8 @@ security, and expiry.")
       (Result.Error _) []
       (Result.Success uri)
         (let [host (Maybe.from @(URI.host &uri) @"")
-              path (Maybe.from @(URI.path &uri) @"/")
+              path (let [p (Maybe.from @(URI.path &uri) @"")]
+                (if (String.starts-with? &p "/") p (fmt "/%s" &p)))
               scheme (Maybe.from @(URI.scheme &uri) @"http")
               is-secure (= &scheme "https")]
           (Array.reduce

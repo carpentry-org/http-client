@@ -681,8 +681,8 @@ See `RequestConfig` for timeout and redirect details.")
                     (set! result (Result.Error e))
                     (break))
                 (Result.Success pair)
-                  (let [resp @(Pair.a &pair)
-                        code @(Response.code &resp)]
+                  (let-do [resp @(Pair.a &pair)
+                           code @(Response.code &resp)]
                     (CookieJar.store-response! jar &resp &cur-url)
                     (if (redirect? code)
                       (if (> remaining 0)

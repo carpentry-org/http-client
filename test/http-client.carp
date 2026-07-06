@@ -7,24 +7,24 @@
 
 (deftest test
   (assert-true test
-    (Result.success? &(Client.get "https://example.com/"))
-    "HTTPS GET to example.com succeeds")
+    (Result.success? &(Client.get "http://127.0.0.1:8791/"))
+    "GET succeeds")
 
   (assert-true test
-    (match (Client.get "https://example.com/")
+    (match (Client.get "http://127.0.0.1:8791/")
       (Result.Success r) (Response.ok? &r)
       _ false)
-    "HTTPS GET to example.com returns 200")
+    "GET returns 200")
 
   (assert-true test
-    (match (Client.get "https://example.com/")
+    (match (Client.get "http://127.0.0.1:8791/")
       (Result.Success r)
         (String.contains-string? (Response.body &r) "<!doctype")
       _ false)
-    "HTTPS GET returns HTML body")
+    "GET returns HTML body")
 
   (assert-true test
-    (match (Client.get "https://example.com/")
+    (match (Client.get "http://127.0.0.1:8791/")
       (Result.Success r)
         (match (Response.header &r "Content-Type")
           (Maybe.Just ct) (String.starts-with? &ct "text/html")
@@ -42,51 +42,51 @@
 
   (assert-true test
     (Result.success?
-      &(Client.post "https://httpbin.org/post"
+      &(Client.post "http://127.0.0.1:8791/post"
                     {@"Content-Type" [@"application/json"]}
                     "{\"test\": true}"))
-    "HTTPS POST to httpbin.org succeeds")
+    "POST succeeds")
 
   (assert-true test
-    (match (Client.post "https://httpbin.org/post"
+    (match (Client.post "http://127.0.0.1:8791/post"
                         {@"Content-Type" [@"application/json"]}
                         "{\"test\": true}")
       (Result.Success r) (Response.ok? &r)
       _ false)
-    "HTTPS POST returns 200")
+    "POST returns 200")
 
   (assert-true test
-    (match (Client.del "https://httpbin.org/delete")
+    (match (Client.del "http://127.0.0.1:8791/delete")
       (Result.Success r) (Response.ok? &r)
       _ false)
-    "HTTPS DELETE returns 200")
+    "DELETE returns 200")
 
   (assert-true test
-    (match (Client.head "https://example.com/")
+    (match (Client.head "http://127.0.0.1:8791/")
       (Result.Success r) (Response.ok? &r)
       _ false)
     "HEAD request returns 200")
 
   (assert-true test
-    (match (Client.head "https://example.com/")
+    (match (Client.head "http://127.0.0.1:8791/")
       (Result.Success r) (= (String.length (Response.body &r)) 0)
       _ false)
     "HEAD request returns empty body")
 
   (assert-true test
-    (match (Client.get "https://httpbin.org/redirect/1")
+    (match (Client.get "http://127.0.0.1:8791/redirect/1")
       (Result.Success r) (Response.ok? &r)
       _ false)
     "follows a single 302 redirect")
 
   (assert-true test
-    (match (Client.get "https://httpbin.org/redirect/3")
+    (match (Client.get "http://127.0.0.1:8791/redirect/3")
       (Result.Success r) (Response.ok? &r)
       _ false)
     "follows multiple 302 redirects")
 
   (assert-true test
-    (match (Client.get "https://httpbin.org/absolute-redirect/1")
+    (match (Client.get "http://127.0.0.1:8791/absolute-redirect/1")
       (Result.Success r) (Response.ok? &r)
       _ false)
     "follows redirect with absolute URL in Location")
@@ -94,7 +94,7 @@
   (assert-true test
     (Result.error?
       &(Client.request-with-max-redirects "GET"
-                                          "https://httpbin.org/redirect/3"
+                                          "http://127.0.0.1:8791/redirect/3"
                                           (the (Map String (Array String)) {})
                                           ""
                                           1))
@@ -103,7 +103,7 @@
   (assert-true test
     (Result.error?
       &(Client.request-with-max-redirects "GET"
-                                          "https://httpbin.org/redirect/1"
+                                          "http://127.0.0.1:8791/redirect/1"
                                           (the (Map String (Array String)) {})
                                           ""
                                           0))
@@ -111,7 +111,7 @@
 
   (assert-true test
     (match (Client.post
-        "https://httpbin.org/redirect-to?url=/get&status_code=303"
+        "http://127.0.0.1:8791/redirect-to?url=/get&status_code=303"
         {@"Content-Type" [@"text/plain"]}
         "test body")
       (Result.Success r) (Response.ok? &r)
@@ -120,7 +120,7 @@
 
   (assert-true test
     (match (Client.post
-        "https://httpbin.org/redirect-to?url=/post&status_code=307"
+        "http://127.0.0.1:8791/redirect-to?url=/post&status_code=307"
         {@"Content-Type" [@"text/plain"]}
         "test body")
       (Result.Success r) (Response.ok? &r)
@@ -129,7 +129,7 @@
 
   (assert-true test
     (match (Client.request "GET"
-                           "https://httpbin.org/redirect-to?url=/headers&status_code=302"
+                           "http://127.0.0.1:8791/redirect-to?url=/headers&status_code=302"
                            {@"Authorization" [@"Bearer test-token-123"]}
                            "")
       (Result.Success r)
@@ -139,7 +139,7 @@
 
   (assert-true test
     (match (Client.request "GET"
-                           "https://httpbin.org/redirect-to?url=https%3A%2F%2Fwww.httpbin.org%2Fheaders&status_code=302"
+                           "http://127.0.0.1:8791/redirect-to?url=http%3A%2F%2F127.0.0.1%3A8792%2Fheaders&status_code=302"
                            {@"Authorization" [@"Bearer secret-token"]}
                            "")
       (Result.Success r)
@@ -157,21 +157,21 @@
 
   (assert-true test
     (let [cfg (RequestConfig.default)]
-      (match (Client.get-with-config "https://example.com/" &cfg)
+      (match (Client.get-with-config "http://127.0.0.1:8791/" &cfg)
         (Result.Success r) (Response.ok? &r)
         _ false))
     "get-with-config with default config returns 200")
 
   (assert-true test
     (let [cfg (RequestConfig.default)]
-      (match (Client.head-with-config "https://example.com/" &cfg)
+      (match (Client.head-with-config "http://127.0.0.1:8791/" &cfg)
         (Result.Success r) (Response.ok? &r)
         _ false))
     "head-with-config with default config returns 200")
 
   (assert-true test
     (let [cfg (RequestConfig.default)]
-      (match (Client.post-with-config "https://httpbin.org/post"
+      (match (Client.post-with-config "http://127.0.0.1:8791/post"
                                       {@"Content-Type" [@"application/json"]}
                                       "{\"test\": true}"
                                       &cfg)
@@ -181,7 +181,7 @@
 
   (assert-true test
     (let [cfg (RequestConfig.init 0 30 10)]
-      (match (Client.get-with-config "https://example.com/" &cfg)
+      (match (Client.get-with-config "http://127.0.0.1:8791/" &cfg)
         (Result.Success r) (Response.ok? &r)
         _ false))
     "generous read-timeout does not affect fast response")
@@ -189,7 +189,7 @@
   (assert-true test
     (let [cfg (RequestConfig.default)]
       (match (Client.request-stream-with-config "GET"
-                                                "https://example.com/"
+                                                "http://127.0.0.1:8791/"
                                                 (the (Map String (Array String))
                                                      {})
                                                 ""
@@ -203,7 +203,7 @@
 
   (assert-true test
     (let [cfg (RequestConfig.default)]
-      (match (Client.get-with-config "https://httpbin.org/redirect/1" &cfg)
+      (match (Client.get-with-config "http://127.0.0.1:8791/redirect/1" &cfg)
         (Result.Success r) (Response.ok? &r)
         _ false))
     "get-with-config follows redirects")
@@ -211,7 +211,7 @@
   (assert-true test
     (let [cfg (RequestConfig.init 0 2 10)]
       (Result.error?
-        &(Client.get-with-config "https://httpbin.org/delay/10" &cfg)))
+        &(Client.get-with-config "http://127.0.0.1:8791/delay/10" &cfg)))
     "read-timeout causes error on slow response")
 
   (assert-equal test
@@ -296,14 +296,14 @@
 
   (assert-true test
     (Result.success?
-      &(Client.post-multipart "https://httpbin.org/post"
+      &(Client.post-multipart "http://127.0.0.1:8791/post"
                               (the (Map String (Array String)) {})
                               &[(Multipart.text-part "greeting"
                                                      "hello from carp")]))
-    "post-multipart to httpbin.org succeeds")
+    "post-multipart succeeds")
 
   (assert-true test
-    (match (Client.post-multipart "https://httpbin.org/post"
+    (match (Client.post-multipart "http://127.0.0.1:8791/post"
                                   (the (Map String (Array String)) {})
                                   &[(Multipart.text-part "greeting" "hello")])
       (Result.Success r) (Response.ok? &r)
@@ -311,17 +311,17 @@
     "post-multipart returns 200")
 
   (assert-true test
-    (match (Client.post-multipart "https://httpbin.org/post"
+    (match (Client.post-multipart "http://127.0.0.1:8791/post"
                                   (the (Map String (Array String)) {})
                                   &[(Multipart.text-part "greeting"
                                                          "hello from carp")])
       (Result.Success r)
         (String.contains-string? (Response.body &r) "hello from carp")
       _ false)
-    "post-multipart body is echoed back by httpbin")
+    "post-multipart body is echoed back")
 
   (assert-true test
-    (match (Client.post-multipart "https://httpbin.org/post"
+    (match (Client.post-multipart "http://127.0.0.1:8791/post"
                                   (the (Map String (Array String)) {})
                                   &[(Multipart.file-part "upload"
                                                          "test.txt"
@@ -330,6 +330,6 @@
       (Result.Success r)
         (String.contains-string? (Response.body &r) "file contents")
       _ false)
-    "post-multipart file part is echoed back by httpbin")
+    "post-multipart file part is echoed back")
 
-  (set! test (cookie-jar-tests test)))
+  (cookie-jar-tests test))
