@@ -1,0 +1,405 @@
+<!DOCTYPE HTML>
+
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+        <link rel="stylesheet" href="../style.css">
+    </head>
+    <body>
+        <div class="content">
+            <div class="logo">
+                <a href="">
+                    <img src="">
+                </a>
+                <div class="title">
+                    http-client
+                </div>
+                <div class="index">
+                    <ul>
+                        <li>
+                            <a href="Client.html">
+                                Client
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Connection.html">
+                                Connection
+                            </a>
+                        </li>
+                        <li>
+                            <a href="CookieJar.html">
+                                CookieJar
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="module">
+                <h1>
+                    CookieJar
+                </h1>
+                <div class="module-description">
+                    <p>stores cookies and replays them on matching requests.</p>
+<p>Create a jar with <code>CookieJar.create</code>, then pass it to <code>Client.get-with-jar</code>
+and similar functions:</p>
+<pre><code>(let-do [jar (CookieJar.create)]
+  (match (Client.get-with-jar &quot;https://example.com/&quot; &amp;jar)
+    (Result.Success r) (println* (Response.body &amp;r))
+    (Result.Error e) (IO.errorln &amp;e))
+  ; jar now has cookies; they are sent on the next request automatically
+  (match (Client.get-with-jar &quot;https://example.com/page&quot; &amp;jar)
+    (Result.Success r) (println* (Response.body &amp;r))
+    (Result.Error e) (IO.errorln &amp;e)))
+</code></pre>
+
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#apply-to-headers">
+                        <h3 id="apply-to-headers">
+                            apply-to-headers
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref CookieJar a), (Ref String b), (Ref (Map String (Array String)) c)] (Map String (Array String)))
+                    </p>
+                    <pre class="args">
+                        (apply-to-headers jar url headers)
+                    </pre>
+                    <p class="doc">
+                        <p>adds a Cookie header for matching cookies to the
+headers map. Returns headers unchanged if no cookies match.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#clear!">
+                        <h3 id="clear!">
+                            clear!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref CookieJar a)] ())
+                    </p>
+                    <pre class="args">
+                        (clear! jar)
+                    </pre>
+                    <p class="doc">
+                        <p>removes all cookies.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#cookie-header">
+                        <h3 id="cookie-header">
+                            cookie-header
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref CookieJar a), (Ref String b)] (Maybe String))
+                    </p>
+                    <pre class="args">
+                        (cookie-header jar url)
+                    </pre>
+                    <p class="doc">
+                        <p>builds a Cookie header value for the URL, or Nothing
+if no cookies match.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#cookies">
+                        <h3 id="cookies">
+                            cookies
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref CookieJar a)] (Ref (Array Cookie) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>cookies</code> property of a <code>CookieJar</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#copy">
+                        <h3 id="copy">
+                            copy
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref CookieJar a)] CookieJar)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>copies a <code>CookieJar</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#create">
+                        <h3 id="create">
+                            create
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [] CookieJar)
+                    </p>
+                    <pre class="args">
+                        (create)
+                    </pre>
+                    <p class="doc">
+                        <p>creates an empty cookie jar.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#delete">
+                        <h3 id="delete">
+                            delete
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [CookieJar] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>deletes a <code>CookieJar</code>. Should usually not be called manually.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#init">
+                        <h3 id="init">
+                            init
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Array Cookie)] CookieJar)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>CookieJar</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#matching">
+                        <h3 id="matching">
+                            matching
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref CookieJar a), (Ref String b)] (Array Cookie))
+                    </p>
+                    <pre class="args">
+                        (matching jar url)
+                    </pre>
+                    <p class="doc">
+                        <p>returns cookies matching the given URL by domain, path,
+security, and expiry.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#prn">
+                        <h3 id="prn">
+                            prn
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref CookieJar a)] String)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>converts a <code>CookieJar</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-cookies">
+                        <h3 id="set-cookies">
+                            set-cookies
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [CookieJar, (Array Cookie)] CookieJar)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>cookies</code> property of a <code>CookieJar</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-cookies!">
+                        <h3 id="set-cookies!">
+                            set-cookies!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref CookieJar a), (Array Cookie)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>cookies</code> property of a <code>CookieJar</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#size">
+                        <h3 id="size">
+                            size
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref CookieJar a)] Int)
+                    </p>
+                    <pre class="args">
+                        (size jar)
+                    </pre>
+                    <p class="doc">
+                        <p>returns the number of cookies stored.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#store!">
+                        <h3 id="store!">
+                            store!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref CookieJar a), (Ref Cookie a)] ())
+                    </p>
+                    <pre class="args">
+                        (store! jar c)
+                    </pre>
+                    <p class="doc">
+                        <p>stores a cookie, replacing any with the same name, domain,
+and path.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#store-response!">
+                        <h3 id="store-response!">
+                            store-response!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref CookieJar a), (Ref Response b), (Ref String c)] ())
+                    </p>
+                    <pre class="args">
+                        (store-response! jar resp url)
+                    </pre>
+                    <p class="doc">
+                        <p>stores cookies from a response. The URL provides the
+default domain for cookies without a Domain attribute.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#str">
+                        <h3 id="str">
+                            str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref CookieJar a)] String)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>converts a <code>CookieJar</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-cookies">
+                        <h3 id="update-cookies">
+                            update-cookies
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [CookieJar, (Ref (Fn [(Array Cookie)] (Array Cookie) a) b)] CookieJar)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>cookies</code> property of a <code>CookieJar</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

@@ -27,6 +27,11 @@
                                 Connection
                             </a>
                         </li>
+                        <li>
+                            <a href="CookieJar.html">
+                                CookieJar
+                            </a>
+                        </li>
                     </ul>
                 </div>
             </div>
@@ -125,6 +130,27 @@ See <code>RequestConfig</code> for timeout and redirect details.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#del-with-jar">
+                        <h3 id="del-with-jar">
+                            del-with-jar
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref CookieJar b)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (del-with-jar url jar)
+                    </pre>
+                    <p class="doc">
+                        <p>performs an HTTP DELETE request using the given <code>CookieJar</code>.
+Returns <code>(Result Response String)</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#get">
                         <h3 id="get">
                             get
@@ -163,6 +189,27 @@ See <code>RequestConfig</code> for timeout and redirect details.</p>
                         <p>performs an HTTP GET request with the given
 <code>RequestConfig</code>. Returns <code>(Result Response String)</code>.
 See <code>RequestConfig</code> for timeout and redirect details.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#get-with-jar">
+                        <h3 id="get-with-jar">
+                            get-with-jar
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref CookieJar b)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (get-with-jar url jar)
+                    </pre>
+                    <p class="doc">
+                        <p>performs an HTTP GET request using the given <code>CookieJar</code>.
+Returns <code>(Result Response String)</code>.</p>
 
                     </p>
                 </div>
@@ -210,6 +257,27 @@ See <code>RequestConfig</code> for timeout and redirect details.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#head-with-jar">
+                        <h3 id="head-with-jar">
+                            head-with-jar
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref CookieJar b)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (head-with-jar url jar)
+                    </pre>
+                    <p class="doc">
+                        <p>performs an HTTP HEAD request using the given <code>CookieJar</code>.
+Returns <code>(Result Response String)</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#patch">
                         <h3 id="patch">
                             patch
@@ -249,6 +317,27 @@ Returns <code>(Result Response String)</code>.</p>
                         <p>performs an HTTP PATCH request with the given <code>RequestConfig</code>.
 Returns <code>(Result Response String)</code>.
 See <code>RequestConfig</code> for timeout and redirect details.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#patch-with-jar">
+                        <h3 id="patch-with-jar">
+                            patch-with-jar
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Map String (Array String)), (Ref String b), (Ref CookieJar c)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (patch-with-jar url headers body jar)
+                    </pre>
+                    <p class="doc">
+                        <p>performs an HTTP PATCH request using the given <code>CookieJar</code>.
+Returns <code>(Result Response String)</code>.</p>
 
                     </p>
                 </div>
@@ -348,6 +437,27 @@ See <code>RequestConfig</code> for timeout and redirect details.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#post-with-jar">
+                        <h3 id="post-with-jar">
+                            post-with-jar
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Map String (Array String)), (Ref String b), (Ref CookieJar c)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (post-with-jar url headers body jar)
+                    </pre>
+                    <p class="doc">
+                        <p>performs an HTTP POST request using the given <code>CookieJar</code>.
+Returns <code>(Result Response String)</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#put">
                         <h3 id="put">
                             put
@@ -387,6 +497,27 @@ Returns <code>(Result Response String)</code>.</p>
                         <p>performs an HTTP PUT request with the given
 <code>RequestConfig</code>. Returns <code>(Result Response String)</code>.
 See <code>RequestConfig</code> for timeout and redirect details.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#put-with-jar">
+                        <h3 id="put-with-jar">
+                            put-with-jar
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Map String (Array String)), (Ref String b), (Ref CookieJar c)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (put-with-jar url headers body jar)
+                    </pre>
+                    <p class="doc">
+                        <p>performs an HTTP PUT request using the given <code>CookieJar</code>.
+Returns <code>(Result Response String)</code>.</p>
 
                     </p>
                 </div>
@@ -465,6 +596,50 @@ HTTP redirects automatically. Use <code>ResponseStream.poll</code> to read chunk
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#request-stream-with-jar">
+                        <h3 id="request-stream-with-jar">
+                            request-stream-with-jar
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref String b), (Map String (Array String)), (Ref String c), (Ref CookieJar d)] (Result ResponseStream String))
+                    </p>
+                    <pre class="args">
+                        (request-stream-with-jar verb url headers body jar)
+                    </pre>
+                    <p class="doc">
+                        <p>sends an HTTP request using the given
+<code>CookieJar</code>. Matching cookies are sent automatically, and Set-Cookie
+response headers are stored in the jar. Returns a <code>ResponseStream</code>.
+Follows up to <code>default-max-redirects</code> redirects.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#request-stream-with-jar-and-config">
+                        <h3 id="request-stream-with-jar-and-config">
+                            request-stream-with-jar-and-config
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref String b), (Map String (Array String)), (Ref String c), (Ref CookieJar d), (Ref RequestConfig e)] (Result ResponseStream String))
+                    </p>
+                    <pre class="args">
+                        (request-stream-with-jar-and-config verb url headers body jar config)
+                    </pre>
+                    <p class="doc">
+                        <p>sends an HTTP request using the
+given <code>CookieJar</code> and <code>RequestConfig</code>. Returns a <code>ResponseStream</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#request-stream-with-max-redirects">
                         <h3 id="request-stream-with-max-redirects">
                             request-stream-with-max-redirects
@@ -510,6 +685,50 @@ Returns <code>(Result Response String)</code>.</p>
   (Client.request-with-config &quot;GET&quot; url headers body &amp;cfg))
 </code></pre>
 <p>See <code>RequestConfig</code> for timeout and redirect details.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#request-with-jar">
+                        <h3 id="request-with-jar">
+                            request-with-jar
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref String b), (Map String (Array String)), (Ref String c), (Ref CookieJar d)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (request-with-jar verb url headers body jar)
+                    </pre>
+                    <p class="doc">
+                        <p>sends an HTTP request using the given <code>CookieJar</code>.
+Matching cookies are sent automatically, and Set-Cookie response headers
+are stored in the jar. Returns <code>(Result Response String)</code>.
+Follows up to <code>default-max-redirects</code> redirects.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#request-with-jar-and-config">
+                        <h3 id="request-with-jar-and-config">
+                            request-with-jar-and-config
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref String b), (Map String (Array String)), (Ref String c), (Ref CookieJar d), (Ref RequestConfig e)] (Result Response String))
+                    </p>
+                    <pre class="args">
+                        (request-with-jar-and-config verb url headers body jar config)
+                    </pre>
+                    <p class="doc">
+                        <p>sends an HTTP request using the given
+<code>CookieJar</code> and <code>RequestConfig</code>. Returns <code>(Result Response String)</code>.</p>
 
                     </p>
                 </div>
