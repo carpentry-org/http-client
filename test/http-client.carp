@@ -92,6 +92,18 @@
     "follows redirect with absolute URL in Location")
 
   (assert-true test
+    (match (Client.get "http://127.0.0.1:8791/redirect-to?url=get")
+      (Result.Success r) (Response.ok? &r)
+      _ false)
+    "follows a relative-path Location")
+
+  (assert-true test
+    (match (Client.get "http://127.0.0.1:8791/redirect-to?url=../get")
+      (Result.Success r) (Response.ok? &r)
+      _ false)
+    "follows a relative Location with dot-segments")
+
+  (assert-true test
     (Result.error?
       &(Client.request-with-max-redirects "GET"
                                           "http://127.0.0.1:8791/redirect/3"
