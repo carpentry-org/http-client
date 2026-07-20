@@ -100,6 +100,29 @@ class Handler(BaseHTTPRequestHandler):
             time.sleep(min(int(path.rsplit("/", 1)[1]), 15))
             return self._send(200, "slow")
 
+        # /chunked-utf8/<n>: n chunks of multi-byte UTF-8, several chunks per
+        # TCP write. Both properties matter: the decoder must advance by bytes,
+        # not characters, and it only shows when a decoded chunk leaves data
+        # behind it in the buffer.
+        if path.startswith("/chunked-utf8/"):
+            n = min(int(path.rsplit("/", 1)[1]), 500)
+            piece = "größer — „quoted“ ".encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            batch = b""
+            for i in range(n):
+                batch += b"%x\r\n%s\r\n" % (len(piece), piece)
+                if (i + 1) % 4 == 0:
+                    self.wfile.write(batch)
+                    batch = b""
+            if batch:
+                self.wfile.write(batch)
+            self.wfile.write(b"0\r\n\r\n")
+            return
+
         return self._send(404, "not found")
 
     def do_GET(self):

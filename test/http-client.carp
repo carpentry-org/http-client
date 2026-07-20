@@ -5,6 +5,23 @@
 
 (load "cookie-jar.carp")
 
+; Counts the chunks a streamed response yields. Returns -1 on request
+; failure so a transport error cannot masquerade as a chunk count.
+(defn stream-chunk-count [url]
+  (match (Client.request-stream "GET"
+                                url
+                                (the (Map String (Array String)) {})
+                                "")
+    (Result.Error _) -1
+    (Result.Success stream)
+      (let-do [n 0]
+        (while-do true
+          (match (ResponseStream.poll &stream)
+            (Maybe.Nothing) (break)
+            (Maybe.Just _) (set! n (Int.inc n))))
+        (ResponseStream.close stream)
+        n)))
+
 (deftest test
   (assert-true test
     (Result.success? &(Client.get "http://127.0.0.1:8791/"))
@@ -343,5 +360,10 @@
         (String.contains-string? (Response.body &r) "file contents")
       _ false)
     "post-multipart file part is echoed back")
+
+  (assert-equal test
+    40
+    (stream-chunk-count "http://127.0.0.1:8791/chunked-utf8/40")
+    "chunked stream of multi-byte UTF-8 yields every chunk")
 
   (cookie-jar-tests test))

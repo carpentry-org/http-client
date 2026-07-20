@@ -1,4 +1,4 @@
-(load "git@github.com:carpentry-org/socket@0.2.1")
+(load "git@github.com:carpentry-org/socket@0.2.3")
 (load "git@github.com:carpentry-org/http@0.1.4")
 (load "git@github.com:carpentry-org/tls@0.1.0")
 (load "git@github.com:carpentry-org/strbuf@0.1.0")
@@ -138,7 +138,12 @@ from the streams library.
               (= rc 1)
               ; got a chunk
               (do
-                (set-buf! s (String.suffix &raw consumed))
+                ; `consumed` is a byte count from the decoder, so the
+                ; remainder must be taken by byte offset. String.suffix counts
+                ; characters, which drops too much as soon as a chunk holds
+                ; multi-byte UTF-8 and desyncs us from the chunk framing.
+                (set-buf! s
+                          (String.byte-slice &raw consumed (String.length &raw)))
                 (set-decoded! s @"")
                 (set! result (Maybe.Just out)))
               (= rc 0)
