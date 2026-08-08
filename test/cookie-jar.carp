@@ -462,6 +462,18 @@
             "explicit Domain cookie does not match request host"))
 
     (set! test
+          (assert-equal &test
+            2
+            (let-do [jar (CookieJar.create)]
+              (match (Response.parse
+                  &@"HTTP/1.1 200 OK\r\nSet-Cookie: a=1; Path=/\r\nSet-Cookie: b=2; Path=/\r\n\r\n")
+                (Result.Success resp)
+                  (CookieJar.store-response! &jar &resp "https://example.com/")
+                _ ())
+              (CookieJar.size &jar))
+            "both cookies survive repeated Set-Cookie headers"))
+
+    (set! test
           (assert-true &test
             (let-do [jar (CookieJar.create)]
               (match (Client.get-with-jar
