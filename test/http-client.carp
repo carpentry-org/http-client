@@ -22,6 +22,10 @@
         (ResponseStream.close stream)
         n)))
 
+; Returns the empty string on request failure.
+(defn get-body [url]
+  (match (Client.get url) (Result.Success r) @(Response.body &r) _ @""))
+
 (deftest test
   (assert-true test
     (Result.success? &(Client.get "http://127.0.0.1:8791/"))
@@ -365,5 +369,23 @@
     40
     (stream-chunk-count "http://127.0.0.1:8791/chunked-utf8/40")
     "chunked stream of multi-byte UTF-8 yields every chunk")
+
+  (assert-equal test
+    &@"folded-chunked-body"
+    &(get-body "http://127.0.0.1:8791/chunked-folded")
+    "chunked body announced across two odd-cased Transfer-Encoding lines is decoded")
+
+  (assert-equal test
+    &@"folded-chunked-body"
+    &(let-do [jar (CookieJar.create)]
+      (match (Client.get-with-jar "http://127.0.0.1:8791/chunked-folded" &jar)
+        (Result.Success r) @(Response.body &r)
+        _ @""))
+    "the same holds on the cookie-jar path")
+
+  (assert-equal test
+    &@"plain-body"
+    &(get-body "http://127.0.0.1:8791/not-chunked")
+    "a Transfer-Encoding that only contains `chunked` as a substring is not decoded")
 
   (cookie-jar-tests test))

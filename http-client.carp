@@ -1,5 +1,5 @@
 (load "git@github.com:carpentry-org/socket@0.2.3")
-(load "git@github.com:carpentry-org/http@0.1.4")
+(load "git@github.com:carpentry-org/http@0.3.0")
 (load "git@github.com:carpentry-org/tls@0.1.0")
 (load "git@github.com:carpentry-org/strbuf@0.1.0")
 
@@ -562,11 +562,7 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
                                 (fmt "too many redirects (max %d)" max-redir)))
                         (break)))
                     (let-do [leftover @(Pair.b &pair)
-                             is-chunked (match (Response.header &resp
-                                                                "Transfer-Encoding")
-                               (Maybe.Just te)
-                                 (String.contains-string? &te "chunked")
-                               _ false)]
+                             is-chunked (Response.chunked? &resp)]
                       (set! result
                             (Result.Success
                               (ResponseStream.init conn
@@ -866,11 +862,7 @@ See `RequestConfig` for timeout and redirect details.")
                                   (fmt "too many redirects (max %d)" max-redir)))
                           (break)))
                       (let-do [leftover @(Pair.b &pair)
-                               is-chunked (match (Response.header &resp
-                                                                  "Transfer-Encoding")
-                                 (Maybe.Just te)
-                                   (String.contains-string? &te "chunked")
-                                 _ false)]
+                               is-chunked (Response.chunked? &resp)]
                         (set! result
                               (Result.Success
                                 (ResponseStream.init conn
