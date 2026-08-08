@@ -123,6 +123,26 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(b"0\r\n\r\n")
             return
 
+        # /chunked-folded: a chunked body announced across two Transfer-Encoding
+        # lines, the last one odd-cased.
+        if path == "/chunked-folded":
+            body = b"folded-chunked-body"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Transfer-Encoding", "gzip")
+            self.send_header("Transfer-Encoding", "Chunked")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(b"%x\r\n%s\r\n0\r\n\r\n" % (len(body), body))
+            return
+
+        # /not-chunked: `chunked` as a substring of another coding token, with a
+        # plain Content-Length body.
+        if path == "/not-chunked":
+            return self._send(
+                200, "plain-body", extra=[("Transfer-Encoding", "xchunked")]
+            )
+
         return self._send(404, "not found")
 
     def do_GET(self):
