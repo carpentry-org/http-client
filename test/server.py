@@ -39,6 +39,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.end_headers()
 
+    def _raw(self, header_line, body):
+        self.wfile.write(
+            b"HTTP/1.1 200 OK\r\n"
+            + header_line
+            + b"\r\nContent-Type: text/plain\r\nContent-Length: "
+            + str(len(body)).encode()
+            + b"\r\nConnection: close\r\n\r\n"
+            + body
+        )
+
     def _body_bytes(self):
         n = int(self.headers.get("Content-Length", 0) or 0)
         return self.rfile.read(n) if n else b""
@@ -142,6 +152,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(
                 200, "plain-body", extra=[("Transfer-Encoding", "xchunked")]
             )
+
+        # /header-utf8 and /header-continuation: header values that are not
+        # ASCII, written as raw bytes so the exact encoding reaches the client.
+        if path == "/header-utf8":
+            return self._raw(b"Server: caf\xc3\xa9", b"HELLO-BODY")
+        if path == "/header-continuation":
+            return self._raw(b"X-Weird: \x80\x80\x80\x80\x80", b"HELLO-BODY")
 
         return self._send(404, "not found")
 

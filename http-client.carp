@@ -3,6 +3,22 @@
 (load "git@github.com:carpentry-org/tls@0.1.0")
 (load "git@github.com:carpentry-org/strbuf@0.1.0")
 
+; Byte-indexed prefix/suffix tests; the core ones measure in bytes but slice
+; in characters.
+(hidden byte-starts-with?)
+(defn byte-starts-with? [s sub]
+  (let [n (String.length sub)]
+    (and (>= (String.length s) n) (= sub &(String.byte-slice s 0 n)))))
+
+(hidden byte-ends-with?)
+(defn byte-ends-with? [s sub]
+  (let [n (String.length s)
+        m (String.length sub)]
+    (and (>= n m) (= sub &(String.byte-slice s (- n m) n)))))
+
+(hidden drop-bytes)
+(defn drop-bytes [s n] (String.byte-slice s n (String.length s)))
+
 (load "src/multipart.carp")
 (load "src/cookie-jar.carp")
 
@@ -281,8 +297,10 @@ the response is complete.")
           (if (< split-pos 0)
             (Result.Error @"incomplete HTTP headers")
             (let [header-end (+ split-pos 4)
-                  header-text (String.prefix &acc header-end)
-                  body-start (String.suffix &acc header-end)]
+                  header-text (String.byte-slice &acc 0 header-end)
+                  body-start (String.byte-slice &acc
+                                                header-end
+                                                (String.length &acc))]
               (match (Response.parse &header-text)
                 (Result.Error e) (Result.Error e)
                 (Result.Success resp)
@@ -326,12 +344,13 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
     (let [i (path-end-index s)]
       (if (< i 0)
         (Pair.init @s @"")
-        (Pair.init (String.prefix s i) (String.suffix s i)))))
+        (Pair.init (String.byte-slice s 0 i)
+                   (String.byte-slice s i (String.length s))))))
 
   (hidden strip-fragment)
   (private strip-fragment)
   (defn strip-fragment [s]
-    (let [h (String.index-of s \#)] (if (< h 0) @s (String.prefix s h))))
+    (let [h (String.index-of s \#)] (if (< h 0) @s (String.byte-slice s 0 h))))
 
   (hidden path-after-authority)
   (private path-after-authority)
@@ -341,18 +360,18 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
         @url
         (let [start (+ scheme-end 3)
               slash (String.index-of-from url \/ start)]
-          (if (< slash 0) @"" (String.suffix url slash))))))
+          (if (< slash 0) @"" (String.byte-slice url slash (String.length url)))))))
 
   (hidden remove-last-segment)
   (private remove-last-segment)
   (defn remove-last-segment [s]
     (let [idx (last-index-of-char s \/)]
-      (if (< idx 0) @"" (String.prefix s idx))))
+      (if (< idx 0) @"" (String.byte-slice s 0 idx))))
 
   (hidden first-segment-end)
   (private first-segment-end)
   (defn first-segment-end [s]
-    (let [from (if (String.starts-with? s "/") 1 0)
+    (let [from (if (byte-starts-with? s "/") 1 0)
           nxt (String.index-of-from s \/ from)]
       (if (< nxt 0) (String.length s) nxt)))
 
@@ -364,24 +383,23 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
              output @""]
       (while (> (String.length &input) 0)
         (cond
-          (String.starts-with? &input "../")
-            (set! input (String.suffix &input 3))
-          (String.starts-with? &input "./")
-            (set! input (String.suffix &input 2))
-          (String.starts-with? &input "/./")
-            (set! input (String.concat &[@"/" (String.suffix &input 3)]))
+          (byte-starts-with? &input "../") (set! input (drop-bytes &input 3))
+          (byte-starts-with? &input "./") (set! input (drop-bytes &input 2))
+          (byte-starts-with? &input "/./")
+            (set! input (String.concat &[@"/" (drop-bytes &input 3)]))
           (= &input "/.") (set! input @"/")
-          (String.starts-with? &input "/../")
+          (byte-starts-with? &input "/../")
             (do
-              (set! input (String.concat &[@"/" (String.suffix &input 4)]))
+              (set! input (String.concat &[@"/" (drop-bytes &input 4)]))
               (set! output (remove-last-segment &output)))
           (= &input "/..")
             (do (set! input @"/") (set! output (remove-last-segment &output)))
           (= &input ".") (set! input @"")
           (= &input "..") (set! input @"")
           (let-do [e (first-segment-end &input)]
-            (set! output (String.concat &[@&output (String.prefix &input e)]))
-            (set! input (String.suffix &input e)))))
+            (set! output
+                  (String.concat &[@&output (String.byte-slice &input 0 e)]))
+            (set! input (drop-bytes &input e)))))
       output))
 
   ; RFC 3986 §5.3 merge: splice a relative-path reference onto the base path.
@@ -393,17 +411,19 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
       (let [idx (last-index-of-char base-path \/)]
         (if (< idx 0)
           @r
-          (String.concat &[(String.prefix base-path (Int.inc idx)) @r])))))
+          (String.concat &[(String.byte-slice base-path 0 (Int.inc idx)) @r])))))
 
   ; Network-path reference (`//authority/path`): keep the base scheme, take the
   ; reference's own authority and dot-segment-cleaned path.
   (hidden resolve-authority-ref)
   (private resolve-authority-ref)
   (defn resolve-authority-ref [scheme r]
-    (let [rest (String.suffix r 2)
+    (let [rest (drop-bytes r 2)
           auth-end (min-index (String.index-of &rest \/) (path-end-index &rest))
-          authority (if (< auth-end 0) @&rest (String.prefix &rest auth-end))
-          after (if (< auth-end 0) @"" (String.suffix &rest auth-end))
+          authority (if (< auth-end 0)
+            @&rest
+            (String.byte-slice &rest 0 auth-end))
+          after (if (< auth-end 0) @"" (drop-bytes &rest auth-end))
           pq (split-query &after)]
       (String.concat
         &[@scheme
@@ -419,7 +439,7 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
   (defn resolve-path-ref [origin base-path r]
     (let [pq (split-query r)
           ref-path (Pair.a &pq)
-          target (if (String.starts-with? ref-path "/")
+          target (if (byte-starts-with? ref-path "/")
             (remove-dot-segments ref-path)
             (remove-dot-segments &(merge-paths base-path ref-path)))]
       (String.concat &[@origin target @(Pair.b &pq)])))
@@ -451,11 +471,11 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
                 base-path (Pair.a &base-parts)
                 base-query (Pair.b &base-parts)]
             (cond
-              (String.starts-with? location "//")
+              (byte-starts-with? location "//")
                 (resolve-authority-ref &scheme location)
-              (String.starts-with? location "#")
+              (byte-starts-with? location "#")
                 (String.concat &[@&origin @base-path @base-query @location])
-              (String.starts-with? location "?")
+              (byte-starts-with? location "?")
                 (String.concat &[@&origin @base-path @location])
               (= location "") (String.concat &[@&origin @base-path @base-query])
               (resolve-path-ref &origin base-path location))))))

@@ -28,16 +28,16 @@ and similar functions:
   (defn domain-matches? [cookie-domain host]
     (let [cd (String.ascii-to-lower &(String.trim cookie-domain))
           h (String.ascii-to-lower host)
-          norm (if (String.starts-with? &cd ".") (String.suffix &cd 1) @&cd)]
-      (or (= &norm &h) (String.ends-with? &h &(fmt ".%s" &norm)))))
+          norm (if (byte-starts-with? &cd ".") (drop-bytes &cd 1) @&cd)]
+      (or (= &norm &h) (byte-ends-with? &h &(fmt ".%s" &norm)))))
 
   (hidden path-matches?)
   (private path-matches?)
   (defn path-matches? [cookie-path request-path]
     (or (= cookie-path request-path)
-        (if (String.ends-with? cookie-path "/")
-          (String.starts-with? request-path cookie-path)
-          (String.starts-with? request-path &(fmt "%s/" cookie-path)))))
+        (if (byte-ends-with? cookie-path "/")
+          (byte-starts-with? request-path cookie-path)
+          (byte-starts-with? request-path &(fmt "%s/" cookie-path)))))
 
   (doc store! "stores a cookie, replacing any with the same name, domain,
 and path.")
@@ -78,7 +78,7 @@ security, and expiry.")
       (Result.Success uri)
         (let [host (Maybe.from @(URI.host &uri) @"")
               path (let [p (Maybe.from @(URI.path &uri) @"")]
-                (if (String.starts-with? &p "/") p (fmt "/%s" &p)))
+                (if (byte-starts-with? &p "/") p (fmt "/%s" &p)))
               scheme (Maybe.from @(URI.scheme &uri) @"http")
               is-secure (= &scheme "https")]
           (Array.reduce
