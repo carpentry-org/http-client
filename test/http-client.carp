@@ -388,4 +388,14 @@
     &(get-body "http://127.0.0.1:8791/not-chunked")
     "a Transfer-Encoding that only contains `chunked` as a substring is not decoded")
 
+  (assert-equal test
+    &@"HELLO-BODY"
+    &(get-body "http://127.0.0.1:8791/header-utf8")
+    "a multi-byte UTF-8 header value does not eat the front of the body")
+
+  (assert-equal test
+    &@"HELLO-BODY"
+    &(get-body "http://127.0.0.1:8791/header-continuation")
+    "a header value that is not valid UTF-8 leaves the body intact")
+
   (cookie-jar-tests test))

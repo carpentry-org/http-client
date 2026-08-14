@@ -1,3 +1,32 @@
+; a run of UTF-8 continuation bytes: `n` bytes long, zero characters long
+(defn continuation [n] (String.from-bytes &(Array.replicate n &128b)))
+
+(defn jar-with-domain [domain]
+  (let-do [jar (CookieJar.create)]
+    (CookieJar.store! &jar
+                      &(Cookie.init @"name"
+                                    @"value"
+                                    @"/"
+                                    (Maybe.Nothing)
+                                    (Maybe.Just @domain)
+                                    false
+                                    false
+                                    (SameSite.Lax)))
+    (Array.length &(CookieJar.matching &jar "http://example.com/p"))))
+
+(defn jar-with-path [path]
+  (let-do [jar (CookieJar.create)]
+    (CookieJar.store! &jar
+                      &(Cookie.init @"name"
+                                    @"value"
+                                    @path
+                                    (Maybe.Nothing)
+                                    (Maybe.Just @"example.com")
+                                    false
+                                    false
+                                    (SameSite.Lax)))
+    (Array.length &(CookieJar.matching &jar "http://example.com/p"))))
+
 (defn cookie-jar-tests [state]
   (let-do [test @state]
     (set! test
@@ -493,5 +522,35 @@
                 _ ())
               (> (CookieJar.size &jar) 0))
             "jar has cookies after visiting set-cookie endpoint"))
+
+    (set! test
+          (assert-equal &test
+            1
+            (jar-with-domain "example.com")
+            "a plain Domain still matches its host"))
+
+    (set! test
+          (assert-equal &test
+            0
+            (jar-with-domain &(continuation 1))
+            "a Domain that is not valid UTF-8 does not match"))
+
+    (set! test
+          (assert-equal &test
+            0
+            (jar-with-domain &(String.concat &[@"." (continuation 3)]))
+            "a dotted Domain that is not valid UTF-8 does not match"))
+
+    (set! test
+          (assert-equal &test
+            0
+            (jar-with-path &(continuation 1))
+            "a Path that is not valid UTF-8 does not match"))
+
+    (set! test
+          (assert-equal &test
+            0
+            (jar-with-path &(String.concat &[@"/" (continuation 3) @"/"]))
+            "a directory Path that is not valid UTF-8 does not match"))
 
     test))
