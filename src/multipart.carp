@@ -142,7 +142,9 @@ Starts from `Multipart.generate-boundary` and, while the candidate still
 occurs in some part name, filename, content type or body, appends the
 `bcharsnospace` character that follows the fewest of those occurrences. Each
 round therefore divides the occurrence count by 62, so the boundary stays far
-inside the 70-character limit even for a payload built to defeat it.")
+inside the 70-character limit even for a payload built to defeat it. Every
+round copies and scans each name, filename, content type and body, so a large
+upload pays a full pass per round.")
   (defn boundary-for [parts]
     (let-do [candidate (generate-boundary)
              counts (Array.replicate 256 &0)]

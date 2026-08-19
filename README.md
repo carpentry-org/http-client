@@ -112,7 +112,7 @@ re-applied for each new URL.
                                 (Multipart.file-part "upload" "test.txt"
                                                      "text/plain"
                                                      "file contents")])
-  (Result.Success r) (println* (Response.status-code &r))
+  (Result.Success r) (println* (Response.code &r))
   (Result.Error e) (IO.errorln &e))
 ```
 
