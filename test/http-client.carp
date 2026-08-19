@@ -26,6 +26,42 @@
 (defn get-body [url]
   (match (Client.get url) (Result.Success r) @(Response.body &r) _ @""))
 
+(defn count-occurrences [s needle]
+  (let-do [n 0
+           rest @s
+           i (String.index-of-string &rest needle)]
+    (while-do (> i -1)
+      (set! n (Int.inc n))
+      (set! rest
+            (String.byte-slice &rest
+                               (+ i (String.length needle))
+                               (String.length &rest)))
+      (set! i (String.index-of-string &rest needle)))
+    n))
+
+; Two parts, the first of which embeds `victim` as a delimiter line.
+(defn parts-embedding [victim]
+  [(Multipart.text-part "note"
+                        &(String.append "hello\r\n--"
+                                        &(String.append victim "\r\nmore")))
+   (Multipart.text-part "after" "real")])
+
+; How many delimiter lines a receiver finds in the encoded message.
+(defn delimiters [parts boundary]
+  (count-occurrences &(Multipart.encode parts boundary)
+                     &(String.append "--" boundary)))
+
+(defn legal-boundary? [b]
+  (and (<= (String.length b) 70)
+       (Array.reduce
+         &(fn [ok c]
+           (and ok
+                (String.contains?
+                  "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'()+_,-./:=?"
+                  @c)))
+         true
+         &(String.chars b))))
+
 (deftest test
   (assert-true test
     (Result.success? &(Client.get "http://127.0.0.1:8791/"))
@@ -360,6 +396,61 @@
       &[(Multipart.file-part "a\"b" "c\"d" "text/plain" "data")]
       "b")
     "encode escapes quotes in name and filename")
+
+  (assert-equal test
+    4
+    (delimiters &(parts-embedding "----CarpBoundary1") "----CarpBoundary1")
+    "an unchecked boundary that occurs in a body splits two parts into three")
+
+  (assert-equal test
+    3
+    (let [parts (parts-embedding &(Multipart.generate-boundary))]
+      (delimiters &parts &(Multipart.boundary-for &parts)))
+    "boundary-for keeps a body containing the delimiter in one part")
+
+  (assert-equal test
+    3
+    (let [parts (parts-embedding
+            &(String.append &(Multipart.generate-boundary) "-tail"))]
+      (delimiters &parts &(Multipart.boundary-for &parts)))
+    "boundary-for keeps a body prefixed by the delimiter in one part")
+
+  (assert-true test
+    (let [parts (parts-embedding &(Multipart.generate-boundary))]
+      (not
+        (String.contains-string? (Part.body (Array.unsafe-nth &parts 0))
+                                 &(Multipart.boundary-for &parts))))
+    "boundary-for returns a boundary absent from every body")
+
+  (assert-true test
+    (let [parts (parts-embedding &(Multipart.generate-boundary))]
+      (legal-boundary? &(Multipart.boundary-for &parts)))
+    "boundary-for stays within the RFC 2046 length and alphabet")
+
+  (assert-true test
+    (String.starts-with?
+      &(Multipart.boundary-for &(the (Array Part) []))
+      "----CarpBoundary")
+    "boundary-for on no parts returns the plain generated boundary")
+
+  (assert-equal test
+    &@"--b\r\nContent-Disposition: form-data; name=\"a%0D%0AX: y\"\r\n\r\nv\r\n--b--\r\n"
+    &(Multipart.encode &[(Multipart.text-part "a\r\nX: y" "v")] "b")
+    "encode percent-encodes CR and LF in a name")
+
+  (assert-equal test
+    &@"--b\r\nContent-Disposition: form-data; name=\"up\"; filename=\"a.txt%0D%0AX: y\"\r\nContent-Type: text/plain\r\n\r\nd\r\n--b--\r\n"
+    &(Multipart.encode
+      &[(Multipart.file-part "up" "a.txt\r\nX: y" "text/plain" "d")]
+      "b")
+    "encode percent-encodes CR and LF in a filename")
+
+  (assert-equal test
+    &@"--b\r\nContent-Disposition: form-data; name=\"up\"; filename=\"a.txt\"\r\nContent-Type: text/plain%0D%0AX: y\r\n\r\nd\r\n--b--\r\n"
+    &(Multipart.encode
+      &[(Multipart.file-part "up" "a.txt" "text/plain\r\nX: y" "d")]
+      "b")
+    "encode percent-encodes CR and LF in a content type")
 
   (assert-true test
     (Result.success?

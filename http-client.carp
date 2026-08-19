@@ -666,7 +666,7 @@ Returns `(Result Response String)`.
                          \"text/plain\" \"file contents\")])
 ```")
   (defn post-multipart [url headers parts]
-    (let [boundary (Multipart.generate-boundary)
+    (let [boundary (Multipart.boundary-for parts)
           body (Multipart.encode parts &boundary)
           ct-vals [(Multipart.content-type-header &boundary)]
           cl-vals [(Int.str (String.length &body))]
@@ -681,7 +681,7 @@ multipart/form-data body using the given `RequestConfig`.
 Returns `(Result Response String)`.
 See `RequestConfig` for timeout and redirect details.")
   (defn post-multipart-with-config [url headers parts config]
-    (let [boundary (Multipart.generate-boundary)
+    (let [boundary (Multipart.boundary-for parts)
           body (Multipart.encode parts &boundary)
           ct-vals [(Multipart.content-type-header &boundary)]
           cl-vals [(Int.str (String.length &body))]
