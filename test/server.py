@@ -78,7 +78,11 @@ class Handler(BaseHTTPRequestHandler):
         if upath == "/\u00fc/from":
             return self._redirect(302, "../echo-path")
 
+        # with a query, root echoes like /echo-path so "/?…" redirects can be asserted
         if path == "/":
+            if parsed.query:
+                port = self.server.server_address[1]
+                return self._send(200, f"{port} /?{parsed.query}")
             return self._send(200, INDEX_HTML, "text/html; charset=utf-8")
         if path == "/get":
             return self._send(200, "ok")

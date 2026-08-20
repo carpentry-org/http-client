@@ -321,6 +321,15 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
   (defn redirect-verb [code verb]
     (if (or (= code 307) (= code 308)) @verb @"GET"))
 
+  ; uri@0.5.1 parses `/` as an empty path, so URI.resolve inherits the base
+  ; path; drop this once a uri after 0.5.1 is pinned (carpentry-org/uri#35).
+  (hidden root-path-ref?)
+  (private root-path-ref?)
+  (defn root-path-ref? [location ref]
+    (and (byte-starts-with? location "/")
+         (and (not (byte-starts-with? location "//"))
+              (String.empty? &(Maybe.from @(URI.path ref) @"")))))
+
   ; RFC 3986 §5 reference resolution.
   (hidden resolve-location)
   (private resolve-location)
@@ -333,9 +342,20 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
           (match (URI.parse base-url)
             (Result.Error _) @location
             (Result.Success base-uri)
-              (match (URI.resolve &base-uri location)
-                (Result.Error _) @location
-                (Result.Success resolved) (URI.str &resolved))))))
+              (if (root-path-ref? location &loc-uri)
+                (URI.str
+                  &(URI.init @(URI.scheme &base-uri)
+                             @(URI.host &base-uri)
+                             @(URI.port &base-uri)
+                             (Maybe.Just @"")
+                             @(URI.query &loc-uri)
+                             @(URI.user &base-uri)
+                             @(URI.password &base-uri)
+                             @(URI.fragment &loc-uri)
+                             (Maybe.Nothing)))
+                (match (URI.resolve &base-uri location)
+                  (Result.Error _) @location
+                  (Result.Success resolved) (URI.str &resolved)))))))
 
   (hidden remove-content-length)
   (private remove-content-length)
