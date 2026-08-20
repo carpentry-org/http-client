@@ -145,6 +145,10 @@ which is 10). For 301/302/303 responses the method is changed to GET and the bod
 dropped. For 307/308 responses the original method and body are preserved. Use the
 `-with-max-redirects` variants to control the limit, or pass 0 to disable.
 
+A relative `Location` is resolved against the URL of the hop that produced it,
+following RFC 3986 §5. A `Location` that carries its own scheme is followed as
+given.
+
 ### `RequestConfig`
 
 | Function | Purpose |

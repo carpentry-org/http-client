@@ -180,6 +180,29 @@
       (Result.Error _) true)
     "cross-origin redirect strips Authorization header")
 
+  (assert-equal test
+    "8791 /echo-path?next=http://127.0.0.1:8791/get"
+    &(get-body
+      "http://127.0.0.1:8791/redirect-to?url=%2Fecho-path%3Fnext%3Dhttp%3A%2F%2F127.0.0.1%3A8791%2Fget")
+    "an absolute-path Location carrying a URL in its query is resolved")
+
+  (assert-true test
+    (Result.error?
+      &(Client.get
+        "http://127.0.0.1:8791/redirect-to?url=mailto%3Anobody%40example.com"))
+    "a Location with a foreign scheme is not rewritten onto the base origin")
+
+  (assert-equal test
+    "8792 /echo-path"
+    &(get-body
+      "http://127.0.0.1:8791/redirect-to?url=%2F%2F127.0.0.1%3A8792%2Fecho-path")
+    "a network-path Location keeps the base scheme and takes its own authority")
+
+  (assert-equal test
+    "8791 /echo-path"
+    &(get-body "http://127.0.0.1:8791/ü/from")
+    "a base path with a multi-byte segment resolves a relative Location")
+
   (assert-true test
     (let [cfg (RequestConfig.default)]
       (and

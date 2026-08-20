@@ -321,164 +321,21 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
   (defn redirect-verb [code verb]
     (if (or (= code 307) (= code 308)) @verb @"GET"))
 
-  (hidden last-index-of-char)
-  (private last-index-of-char)
-  (defn last-index-of-char [s c]
-    (let-do [result -1
-             n (String.length s)]
-      (for [i 0 n] (when (= (String.char-at s i) c) (set! result i)))
-      result))
-
-  (hidden min-index)
-  (private min-index)
-  (defn min-index [a b] (cond (< a 0) b (< b 0) a (if (< a b) a b)))
-
-  (hidden path-end-index)
-  (private path-end-index)
-  (defn path-end-index [s]
-    (min-index (String.index-of s \?) (String.index-of s \#)))
-
-  (hidden split-query)
-  (private split-query)
-  (defn split-query [s]
-    (let [i (path-end-index s)]
-      (if (< i 0)
-        (Pair.init @s @"")
-        (Pair.init (String.byte-slice s 0 i)
-                   (String.byte-slice s i (String.length s))))))
-
-  (hidden strip-fragment)
-  (private strip-fragment)
-  (defn strip-fragment [s]
-    (let [h (String.index-of s \#)] (if (< h 0) @s (String.byte-slice s 0 h))))
-
-  (hidden path-after-authority)
-  (private path-after-authority)
-  (defn path-after-authority [url]
-    (let [scheme-end (String.index-of-string url "://")]
-      (if (< scheme-end 0)
-        @url
-        (let [start (+ scheme-end 3)
-              slash (String.index-of-from url \/ start)]
-          (if (< slash 0) @"" (String.byte-slice url slash (String.length url)))))))
-
-  (hidden remove-last-segment)
-  (private remove-last-segment)
-  (defn remove-last-segment [s]
-    (let [idx (last-index-of-char s \/)]
-      (if (< idx 0) @"" (String.byte-slice s 0 idx))))
-
-  (hidden first-segment-end)
-  (private first-segment-end)
-  (defn first-segment-end [s]
-    (let [from (if (byte-starts-with? s "/") 1 0)
-          nxt (String.index-of-from s \/ from)]
-      (if (< nxt 0) (String.length s) nxt)))
-
-  ; RFC 3986 §5.2.4 remove_dot_segments: collapse `.` and `..` in a path.
-  (hidden remove-dot-segments)
-  (private remove-dot-segments)
-  (defn remove-dot-segments [path]
-    (let-do [input @path
-             output @""]
-      (while (> (String.length &input) 0)
-        (cond
-          (byte-starts-with? &input "../") (set! input (drop-bytes &input 3))
-          (byte-starts-with? &input "./") (set! input (drop-bytes &input 2))
-          (byte-starts-with? &input "/./")
-            (set! input (String.concat &[@"/" (drop-bytes &input 3)]))
-          (= &input "/.") (set! input @"/")
-          (byte-starts-with? &input "/../")
-            (do
-              (set! input (String.concat &[@"/" (drop-bytes &input 4)]))
-              (set! output (remove-last-segment &output)))
-          (= &input "/..")
-            (do (set! input @"/") (set! output (remove-last-segment &output)))
-          (= &input ".") (set! input @"")
-          (= &input "..") (set! input @"")
-          (let-do [e (first-segment-end &input)]
-            (set! output
-                  (String.concat &[@&output (String.byte-slice &input 0 e)]))
-            (set! input (drop-bytes &input e)))))
-      output))
-
-  ; RFC 3986 §5.3 merge: splice a relative-path reference onto the base path.
-  (hidden merge-paths)
-  (private merge-paths)
-  (defn merge-paths [base-path r]
-    (if (= base-path "")
-      (String.concat &[@"/" @r])
-      (let [idx (last-index-of-char base-path \/)]
-        (if (< idx 0)
-          @r
-          (String.concat &[(String.byte-slice base-path 0 (Int.inc idx)) @r])))))
-
-  ; Network-path reference (`//authority/path`): keep the base scheme, take the
-  ; reference's own authority and dot-segment-cleaned path.
-  (hidden resolve-authority-ref)
-  (private resolve-authority-ref)
-  (defn resolve-authority-ref [scheme r]
-    (let [rest (drop-bytes r 2)
-          auth-end (min-index (String.index-of &rest \/) (path-end-index &rest))
-          authority (if (< auth-end 0)
-            @&rest
-            (String.byte-slice &rest 0 auth-end))
-          after (if (< auth-end 0) @"" (drop-bytes &rest auth-end))
-          pq (split-query &after)]
-      (String.concat
-        &[@scheme
-          @"://"
-          authority
-          (remove-dot-segments (Pair.a &pq))
-          @(Pair.b &pq)])))
-
-  ; Absolute-path or relative-path reference: resolve the path against the base
-  ; path, then re-attach the reference's own query and fragment.
-  (hidden resolve-path-ref)
-  (private resolve-path-ref)
-  (defn resolve-path-ref [origin base-path r]
-    (let [pq (split-query r)
-          ref-path (Pair.a &pq)
-          target (if (byte-starts-with? ref-path "/")
-            (remove-dot-segments ref-path)
-            (remove-dot-segments &(merge-paths base-path ref-path)))]
-      (String.concat &[@origin target @(Pair.b &pq)])))
-
-  ; Resolves a redirect Location against base-url per RFC 3986 §5. Absolute
-  ; references are returned unchanged; absolute-path, network-path (//host/…),
-  ; relative-path (page, ../x), and query-only (?k=v) references are resolved
-  ; against the base URL's scheme, authority, and path, with ./.. segments
-  ; removed. If base-url cannot be parsed the location is returned unchanged.
+  ; RFC 3986 §5 reference resolution.
   (hidden resolve-location)
   (private resolve-location)
   (defn resolve-location [base-url location]
-    (if (String.contains-string? location "://")
-      @location
-      (match (URI.parse base-url)
-        (Result.Error _) @location
-        (Result.Success base-uri)
-          (let [scheme (Maybe.from @(URI.scheme &base-uri) @"http")
-                host (Maybe.from @(URI.host &base-uri) @"")
-                port @(URI.port &base-uri)
-                port-str (match port
-                  (Maybe.Just p)
-                    (if (= p (default-port &scheme)) @"" (fmt ":%d" p))
-                  (Maybe.Nothing) @"")
-                origin (String.concat &[@&scheme @"://" @&host @&port-str])
-                base-no-fragment (strip-fragment base-url)
-                base-parts (split-query
-                  &(path-after-authority &base-no-fragment))
-                base-path (Pair.a &base-parts)
-                base-query (Pair.b &base-parts)]
-            (cond
-              (byte-starts-with? location "//")
-                (resolve-authority-ref &scheme location)
-              (byte-starts-with? location "#")
-                (String.concat &[@&origin @base-path @base-query @location])
-              (byte-starts-with? location "?")
-                (String.concat &[@&origin @base-path @location])
-              (= location "") (String.concat &[@&origin @base-path @base-query])
-              (resolve-path-ref &origin base-path location))))))
+    (match (URI.parse location)
+      (Result.Error _) @location
+      (Result.Success loc-uri)
+        (if (Maybe.just? (URI.scheme &loc-uri))
+          @location
+          (match (URI.parse base-url)
+            (Result.Error _) @location
+            (Result.Success base-uri)
+              (match (URI.resolve &base-uri location)
+                (Result.Error _) @location
+                (Result.Success resolved) (URI.str &resolved))))))
 
   (hidden remove-content-length)
   (private remove-content-length)
