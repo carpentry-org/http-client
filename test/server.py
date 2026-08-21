@@ -62,7 +62,27 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
         qs = parse_qs(parsed.query)
 
+        # http.server decodes the request line as latin-1; recover the bytes.
+        try:
+            upath = path.encode("iso-8859-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            upath = path
+
+        # /echo-path: the answering port plus the requested path and query
+        if path == "/echo-path":
+            q = "?" + parsed.query if parsed.query else ""
+            port = self.server.server_address[1]
+            return self._send(200, f"{port} {path}{q}")
+
+        # a base path with a multi-byte segment, redirecting one level up
+        if upath == "/\u00fc/from":
+            return self._redirect(302, "../echo-path")
+
+        # with a query, root echoes like /echo-path so "/?…" redirects can be asserted
         if path == "/":
+            if parsed.query:
+                port = self.server.server_address[1]
+                return self._send(200, f"{port} /?{parsed.query}")
             return self._send(200, INDEX_HTML, "text/html; charset=utf-8")
         if path == "/get":
             return self._send(200, "ok")
