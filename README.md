@@ -103,6 +103,39 @@ Secure flag enforcement, and expiry. Cookies are deduplicated by
 name+domain+path. During redirects, cookies from every hop are stored and
 re-applied for each new URL.
 
+### Multipart uploads
+
+```clojure
+(match (Client.post-multipart "https://example.com/upload"
+                              (the (Map String (Array String)) {})
+                              &[(Multipart.text-part "field" "value")
+                                (Multipart.file-part "upload" "test.txt"
+                                                     "text/plain"
+                                                     "file contents")])
+  (Result.Success r) (println* (Response.code &r))
+  (Result.Error e) (IO.errorln &e))
+```
+
+`post-multipart` picks the boundary with `Multipart.boundary-for`, which
+checks it against the parts and extends it until it occurs in none of them.
+RFC 2046 §5.1.1 requires that, and without it any upload whose contents
+happen to contain the delimiter is split in the wrong places by the receiver.
+
+To build the body yourself, pick the boundary the same way:
+
+```clojure
+(let [parts [(Multipart.text-part "name" "Carp")]
+      boundary (Multipart.boundary-for &parts)]
+  (Client.post url
+    {@"Content-Type" [(Multipart.content-type-header &boundary)]}
+    &(Multipart.encode &parts &boundary)))
+```
+
+A CR or LF in a part name, filename or content type is percent-encoded as
+`%0D` and `%0A`, so an untrusted field name cannot inject header lines or a
+further part into the body. Quotes are backslash-escaped. Values without
+those characters are emitted unchanged.
+
 ## API
 
 ### `Client`
@@ -125,6 +158,8 @@ re-applied for each new URL.
 | `Client.del-with-config url config` | DELETE with request config |
 | `Client.head-with-config url config` | HEAD with request config |
 | `Client.patch-with-config url headers body config` | PATCH with request config |
+| `Client.post-multipart url headers parts` | POST a multipart/form-data body |
+| `Client.post-multipart-with-config url headers parts config` | Multipart POST with request config |
 | `Client.request-with-config verb url headers body config` | Generic request with request config |
 | `Client.request-stream-with-config verb url headers body config` | Streaming with request config |
 | `Client.get-with-jar url jar` | GET with cookie jar |
@@ -148,6 +183,17 @@ dropped. For 307/308 responses the original method and body are preserved. Use t
 A relative `Location` is resolved against the URL of the hop that produced it,
 following RFC 3986 §5. A `Location` that carries its own scheme is followed as
 given.
+
+### `Multipart`
+
+| Function | Purpose |
+|----------|---------|
+| `Multipart.text-part name value` | A text form field |
+| `Multipart.file-part name filename content-type data` | A file upload part |
+| `Multipart.boundary-for parts` | A boundary that occurs in no part |
+| `Multipart.generate-boundary` | A boundary from the clock, unchecked against any payload |
+| `Multipart.content-type-header boundary` | The `Content-Type` value for a boundary |
+| `Multipart.encode parts boundary` | The encoded body |
 
 ### `RequestConfig`
 

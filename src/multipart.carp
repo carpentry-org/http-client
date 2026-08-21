@@ -16,11 +16,16 @@ Use `Multipart.text-part` to create a simple text field, or
 (let [parts [(Multipart.text-part \"name\" \"Carp\")
              (Multipart.file-part \"upload\" \"test.txt\"
                                   \"text/plain\" \"file contents\")]
-      boundary (Multipart.generate-boundary)]
+      boundary (Multipart.boundary-for &parts)]
   (Client.post url
     {@\"Content-Type\" [(Multipart.content-type-header &boundary)]}
     &(Multipart.encode &parts &boundary)))
 ```
+
+Pick the boundary with `Multipart.boundary-for`, not with
+`Multipart.generate-boundary`: only the former is checked against the parts,
+which is what keeps a body that happens to contain the delimiter from
+splitting the message.
 
 ## Convenience function
 
@@ -34,6 +39,82 @@ Use `Multipart.text-part` to create a simple text field, or
   (defn escape-quotes [s]
     (let [q (Char.from-int 34)] (String.join "\\\"" &(String.split-by s &[q]))))
 
+  (hidden escape-newlines)
+  (private escape-newlines)
+  (defn escape-newlines [s]
+    (let [cr (Char.from-int 13)
+          lf (Char.from-int 10)]
+      (String.join "%0A"
+                   &(String.split-by
+                     &(String.join "%0D" &(String.split-by s &[cr]))
+                     &[lf]))))
+
+  (hidden extension-alphabet)
+  (private extension-alphabet)
+  (def extension-alphabet
+    "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+  (hidden matches-at?)
+  (private matches-at?)
+  (defn matches-at? [haystack needle i]
+    (let-do [m (Array.length needle)
+             j 0
+             ok true]
+      (while-do (and ok (< j m))
+        (if (= @(Array.unsafe-nth haystack (+ i j)) @(Array.unsafe-nth needle j))
+          (set! j (Int.inc j))
+          (set! ok false)))
+      ok))
+
+  (hidden tally-text!)
+  (private tally-text!)
+  (defn tally-text! [counts text needle]
+    (let-do [haystack (String.to-bytes text)
+             nb (String.to-bytes needle)
+             n (Array.length &haystack)
+             m (Array.length &nb)
+             found false]
+      (when-do (>= n m)
+        (for [i 0 (Int.inc (- n m))]
+          (when-do (matches-at? &haystack &nb i)
+            (set! found true)
+            (when-do (< (+ i m) n)
+              (let [b (Byte.to-int @(Array.unsafe-nth &haystack (+ i m)))]
+                (Array.aset! counts b (Int.inc @(Array.unsafe-nth counts b))))))))
+      found))
+
+  (hidden tally-parts!)
+  (private tally-parts!)
+  (defn tally-parts! [counts parts needle]
+    (let-do [found false]
+      (for [i 0 (Array.length parts)]
+        (let-do [part (Array.unsafe-nth parts i)]
+          (when (tally-text! counts (Part.name part) needle) (set! found true))
+          (when (tally-text! counts (Part.body part) needle) (set! found true))
+          (match-ref (Part.filename part)
+            (Maybe.Just fname)
+              (when (tally-text! counts fname needle) (set! found true))
+            (Maybe.Nothing) ())
+          (match-ref (Part.content-type part)
+            (Maybe.Just ct)
+              (when (tally-text! counts ct needle) (set! found true))
+            (Maybe.Nothing) ())))
+      found))
+
+  (hidden least-used)
+  (private least-used)
+  (defn least-used [counts]
+    (let-do [alphabet (String.to-bytes extension-alphabet)
+             best 0
+             fewest @(Array.unsafe-nth counts
+                                       (Byte.to-int @(Array.unsafe-nth &alphabet
+                                                                       0)))]
+      (for [i 1 (Array.length &alphabet)]
+        (let [n @(Array.unsafe-nth counts
+                                   (Byte.to-int @(Array.unsafe-nth &alphabet i)))]
+          (when-do (< n fewest) (set! best i) (set! fewest n))))
+      (String.byte-slice extension-alphabet best (Int.inc best))))
+
   (doc text-part "creates a text form field part with the given name and value.")
   (defn text-part [name value]
     (Part.init @name (Maybe.Nothing) (Maybe.Nothing) @value))
@@ -45,9 +126,32 @@ The `data` parameter is the raw file contents as a string.")
 
   (doc generate-boundary
     "generates a boundary string for multipart encoding, using the current
-time for uniqueness.")
+time for uniqueness.
+
+The result is not checked against any payload, so a part that contains it is
+encoded into a message the receiver splits in the wrong places. Prefer
+`Multipart.boundary-for`, which rules that out.")
   (defn generate-boundary []
     (String.append "----CarpBoundary" &(Int.str (System.time))))
+
+  (doc boundary-for
+    "returns a boundary that occurs nowhere in `parts`, as RFC 2046 §5.1.1
+requires of the delimiter.
+
+Starts from `Multipart.generate-boundary` and, while the candidate still
+occurs in some part name, filename, content type or body, appends the
+`bcharsnospace` character that follows the fewest of those occurrences. Each
+round therefore divides the occurrence count by 62, so the boundary stays far
+inside the 70-character limit even for a payload built to defeat it. Every
+round copies and scans each name, filename, content type and body, so a large
+upload pays a full pass per round.")
+  (defn boundary-for [parts]
+    (let-do [candidate (generate-boundary)
+             counts (Array.replicate 256 &0)]
+      (while-do (tally-parts! &counts parts &candidate)
+        (set! candidate (String.append &candidate &(least-used &counts)))
+        (set! counts (Array.replicate 256 &0)))
+      candidate))
 
   (doc content-type-header
     "returns the Content-Type header value for multipart/form-data with the
@@ -57,7 +161,16 @@ given boundary.")
 
   (doc encode
     "encodes an array of parts into a multipart/form-data body string using
-the given boundary (RFC 7578).")
+the given boundary (RFC 7578).
+
+Pass a boundary from `Multipart.boundary-for`; `encode` cannot re-pick one,
+because the caller has already committed to it in the Content-Type header.
+
+A CR or LF in a part name, filename or content type would end the header line
+and let the rest of the value pose as headers or as a further part, so both
+are percent-encoded as %0D and %0A, following the same rule as HTML form
+submission. Quotes in a name or filename are backslash-escaped. Values
+without those characters are emitted unchanged.")
   (defn encode [parts boundary]
     (let-do [sb (StringBuf.create)]
       (for [i 0 (Array.length parts)]
@@ -66,13 +179,15 @@ the given boundary (RFC 7578).")
           (StringBuf.append-str &sb boundary)
           (StringBuf.append-crlf &sb)
           (StringBuf.append-str &sb "Content-Disposition: form-data; name=\"")
-          (StringBuf.append-str &sb &(escape-quotes (Part.name part)))
+          (StringBuf.append-str &sb
+                                &(escape-quotes &(escape-newlines (Part.name part))))
           (StringBuf.append-str &sb "\"")
           (match-ref (Part.filename part)
             (Maybe.Just fname)
               (do
                 (StringBuf.append-str &sb "; filename=\"")
-                (StringBuf.append-str &sb &(escape-quotes fname))
+                (StringBuf.append-str &sb
+                                      &(escape-quotes &(escape-newlines fname)))
                 (StringBuf.append-str &sb "\""))
             (Maybe.Nothing) ())
           (StringBuf.append-crlf &sb)
@@ -80,7 +195,7 @@ the given boundary (RFC 7578).")
             (Maybe.Just ct)
               (do
                 (StringBuf.append-str &sb "Content-Type: ")
-                (StringBuf.append-str &sb ct)
+                (StringBuf.append-str &sb &(escape-newlines ct))
                 (StringBuf.append-crlf &sb))
             (Maybe.Nothing) ())
           (StringBuf.append-crlf &sb)
