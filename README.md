@@ -98,10 +98,14 @@ subsequent requests automatically:
     (Result.Error e) (IO.errorln &e)))
 ```
 
-The jar handles domain matching (RFC 6265 suffix rules), path matching,
-Secure flag enforcement, and expiry. Cookies are deduplicated by
-name+domain+path. During redirects, cookies from every hop are stored and
-re-applied for each new URL.
+The jar follows RFC 6265 §5.3 and §5.4. A cookie that arrives with no
+`Domain` attribute is host-only: it goes back to the host that set it and to
+no subdomain. A `Domain` attribute the responding host does not domain-match
+is rejected outright, and so is a single-label one such as `Domain=com`. On
+top of that the jar enforces path matching, the `Secure` flag, and expiry;
+cookies are deduplicated by name+domain+path and serialized longest path
+first. During redirects, cookies from every hop are stored and re-applied for
+each new URL.
 
 ### Multipart uploads
 
@@ -207,9 +211,9 @@ given.
 | Function | Purpose |
 |----------|---------|
 | `CookieJar.create` | Create an empty jar |
-| `CookieJar.store! jar cookie` | Store a cookie, replacing duplicates by name+domain+path |
-| `CookieJar.store-response! jar response url` | Store cookies from a response, defaulting domain from URL |
-| `CookieJar.matching jar url` | Return cookies matching the URL by domain, path, security, and expiry |
+| `CookieJar.store! jar cookie` | Store a cookie as a domain cookie, replacing duplicates by name+domain+path |
+| `CookieJar.store-response! jar response url` | Store a response's cookies, applying RFC 6265 §5.3's origin checks |
+| `CookieJar.matching jar url` | Return cookies matching the URL by domain, path, security, and expiry, longest path first |
 | `CookieJar.cookie-header jar url` | Build a `Cookie` header value, or `Nothing` if no cookies match |
 | `CookieJar.apply-to-headers jar url headers` | Add a `Cookie` header to the headers map |
 | `CookieJar.size jar` | Number of stored cookies |
