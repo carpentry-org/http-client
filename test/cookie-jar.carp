@@ -14,6 +14,27 @@
                                     (SameSite.Lax)))
     (Array.length &(CookieJar.matching &jar "http://example.com/p"))))
 
+(defn jar-from [url domain]
+  (let-do [jar (CookieJar.create)
+           resp (Response.init 200
+                               @"OK"
+                               @"HTTP/1.1"
+                               [(Cookie.init @"sid"
+                                             @"abc"
+                                             @"/"
+                                             (Maybe.Nothing)
+                                             domain
+                                             false
+                                             false
+                                             (SameSite.Lax))]
+                               (the (Map String (Array String)) {})
+                               @"")]
+    (CookieJar.store-response! &jar &resp url)
+    jar))
+
+(defn sent-to [url domain target]
+  (Array.length &(CookieJar.matching &(jar-from url domain) target)))
+
 (defn jar-with-path [path]
   (let-do [jar (CookieJar.create)]
     (CookieJar.store! &jar
@@ -26,6 +47,35 @@
                                     false
                                     (SameSite.Lax)))
     (Array.length &(CookieJar.matching &jar "http://example.com/p"))))
+
+(defn redirect-jar []
+  (let-do [jar (CookieJar.create)
+           resp (Response.init 200
+                               @"OK"
+                               @"HTTP/1.1"
+                               [(Cookie.init @"sid"
+                                             @"abc"
+                                             @"/"
+                                             (Maybe.Nothing)
+                                             (Maybe.Nothing)
+                                             false
+                                             false
+                                             (SameSite.Lax))]
+                               (the (Map String (Array String)) {})
+                               @"")]
+    (CookieJar.store-response! &jar &resp "http://a.example.com/one")
+    (CookieJar.store-response! &jar &resp "http://b.example.com/two")
+    jar))
+
+(defn at-path [name value path]
+  (Cookie.init @name
+               @value
+               @path
+               (Maybe.Nothing)
+               (Maybe.Just @"example.com")
+               false
+               false
+               (SameSite.Lax)))
 
 (defn cookie-jar-tests [state]
   (let-do [test @state]
@@ -451,44 +501,25 @@
     (set! test
           (assert-equal &test
             1
-            (let-do [jar (CookieJar.create)
-                     resp (Response.init 200
-                                         @"OK"
-                                         @"HTTP/1.1"
-                                         [(Cookie.init @"sid"
-                                                       @"abc"
-                                                       @"/"
-                                                       (Maybe.Nothing)
-                                                       (Maybe.Just @"other.com")
-                                                       false
-                                                       false
-                                                       (SameSite.Lax))]
-                                         (the (Map String (Array String)) {})
-                                         @"")]
-              (CookieJar.store-response! &jar &resp "https://example.com/login")
-              (Array.length &(CookieJar.matching &jar "https://other.com/")))
-            "store-response! preserves explicit Domain attribute"))
+            (sent-to "https://sub.example.com/login"
+                     (Maybe.Just @"example.com")
+                     "https://example.com/")
+            "store-response! keeps a Domain the origin domain-matches"))
 
     (set! test
           (assert-equal &test
             0
-            (let-do [jar (CookieJar.create)
-                     resp (Response.init 200
-                                         @"OK"
-                                         @"HTTP/1.1"
-                                         [(Cookie.init @"sid"
-                                                       @"abc"
-                                                       @"/"
-                                                       (Maybe.Nothing)
-                                                       (Maybe.Just @"other.com")
-                                                       false
-                                                       false
-                                                       (SameSite.Lax))]
-                                         (the (Map String (Array String)) {})
-                                         @"")]
-              (CookieJar.store-response! &jar &resp "https://example.com/login")
-              (Array.length &(CookieJar.matching &jar "https://example.com/")))
-            "explicit Domain cookie does not match request host"))
+            (CookieJar.size
+              &(jar-from "https://evil.com/" (Maybe.Just @"example.com")))
+            "a Domain the origin does not domain-match is rejected outright"))
+
+    (set! test
+          (assert-equal &test
+            0
+            (sent-to "https://evil.com/"
+                     (Maybe.Just @"example.com")
+                     "https://example.com/")
+            "a rejected cross-origin Domain is never replayed"))
 
     (set! test
           (assert-equal &test
@@ -552,5 +583,144 @@
             0
             (jar-with-path &(String.concat &[@"/" (continuation 3) @"/"]))
             "a directory Path that is not valid UTF-8 does not match"))
+
+    (set! test
+          (assert-equal &test
+            0
+            (sent-to "https://example.com/login"
+                     (Maybe.Nothing)
+                     "https://sub.example.com/")
+            "a cookie stored with no Domain is host-only"))
+
+    (set! test
+          (assert-equal &test
+            1
+            (sent-to "https://example.com/login"
+                     (Maybe.Just @"example.com")
+                     "https://sub.example.com/")
+            "an explicit Domain equal to the host still reaches subdomains"))
+
+    (set! test
+          (assert-equal &test
+            0
+            (CookieJar.size
+              &(jar-from "https://example.com/" (Maybe.Just @"com")))
+            "a single-label Domain is rejected"))
+
+    (set! test
+          (assert-equal &test
+            0
+            (CookieJar.size
+              &(jar-from "https://example.com/" (Maybe.Just @".com")))
+            "a leading dot does not rescue a single-label Domain"))
+
+    (set! test
+          (assert-equal &test
+            0
+            (CookieJar.size
+              &(jar-from "https://example.com/" (Maybe.Just @"..com")))
+            "a doubled leading dot does not rescue a single-label Domain"))
+
+    (set! test
+          (assert-equal &test
+            1
+            (sent-to "http://localhost/"
+                     (Maybe.Just @"localhost")
+                     "http://localhost/")
+            "a single-label Domain identical to the host is kept"))
+
+    (set! test
+          (assert-equal &test
+            0
+            (sent-to "http://localhost/"
+                     (Maybe.Just @"localhost")
+                     "http://sub.localhost/")
+            "a single-label Domain identical to the host is host-only"))
+
+    (set! test
+          (assert-equal &test
+            1
+            (sent-to "https://example.com/"
+                     (Maybe.Just @".example.com")
+                     "https://example.com/")
+            "a leading dot in the Domain attribute is ignored"))
+
+    (set! test
+          (assert-equal &test
+            1
+            (sent-to "https://example.com/"
+                     (Maybe.Just @".example.com")
+                     "https://sub.example.com/")
+            "a leading-dot Domain reaches subdomains"))
+
+    (set! test
+          (assert-equal &test
+            1
+            (sent-to "http://EXAMPLE.com/" (Maybe.Nothing) "http://example.com/")
+            "a host-only cookie ignores the case of the origin host"))
+
+    (set! test
+          (assert-equal &test
+            1
+            (sent-to "http://example.com/" (Maybe.Nothing) "http://EXAMPLE.COM/")
+            "a host-only cookie ignores the case of the request host"))
+
+    (set! test
+          (assert-equal &test
+            1
+            (sent-to "http://127.0.0.1/" (Maybe.Nothing) "http://127.0.0.1/")
+            "an IP-literal host gets its own cookie back"))
+
+    (set! test
+          (assert-equal &test
+            0
+            (sent-to "http://127.0.0.1/" (Maybe.Nothing) "http://1.127.0.0.1/")
+            "an IP-literal host matches exactly, not by suffix"))
+
+    (set! test
+          (assert-equal &test
+            0
+            (CookieJar.size
+              &(jar-from "http://127.0.0.1/" (Maybe.Just @"0.0.1")))
+            "an IP-literal origin does not domain-match a suffix Domain"))
+
+    (set! test
+          (assert-equal &test
+            2
+            (CookieJar.size &(redirect-jar))
+            "a redirect to another origin stores a second host-only cookie"))
+
+    (set! test
+          (assert-equal &test
+            1
+            (Array.length
+              &(CookieJar.matching &(redirect-jar) "http://a.example.com/"))
+            "each hop of a redirect chain gets only the cookie it set"))
+
+    (set! test
+          (assert-equal &test
+            0
+            (Array.length
+              &(CookieJar.matching &(redirect-jar) "http://example.com/"))
+            "a redirect chain's host-only cookies do not reach the apex"))
+
+    (set! test
+          (assert-equal &test
+            &(Maybe.Just @"deep=3; mid=2; root=1")
+            &(let-do [jar (CookieJar.create)]
+              (CookieJar.store! &jar &(at-path "root" "1" "/"))
+              (CookieJar.store! &jar &(at-path "deep" "3" "/a/b/c"))
+              (CookieJar.store! &jar &(at-path "mid" "2" "/a"))
+              (CookieJar.cookie-header &jar "https://example.com/a/b/c/d"))
+            "cookie-header serializes longer paths first"))
+
+    (set! test
+          (assert-equal &test
+            &(Maybe.Just @"y=2; x=1")
+            &(let-do [jar (CookieJar.create)]
+              (CookieJar.store! &jar &(at-path "y" "2" "/ab"))
+              (CookieJar.store! &jar &(at-path "x" "1" "/ab"))
+              (CookieJar.cookie-header &jar "https://example.com/ab/z"))
+            "cookies of equal path length keep their insertion order"))
 
     test))

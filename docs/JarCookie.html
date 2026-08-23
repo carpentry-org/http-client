@@ -47,90 +47,31 @@
             </div>
             <div class="module">
                 <h1>
-                    Connection
+                    JarCookie
                 </h1>
                 <div class="module-description">
-                    <p>is a union of plain TCP and TLS-encrypted streams, allowing
-the HTTP client to dispatch send/read over either transport.</p>
+                    <p>is a stored cookie together with RFC 6265 §5.3’s
+host-only-flag, which is set when the cookie arrived without a <code>Domain</code>
+attribute and may therefore only go back to the host that set it.</p>
 
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#Plain">
-                        <h3 id="Plain">
-                            Plain
+                    <a class="anchor" href="#cookie">
+                        <h3 id="cookie">
+                            cookie
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [TcpStream] Connection)
+                        (Fn [(Ref JarCookie a)] (Ref Cookie a))
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>creates a <code>Plain</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#Secure">
-                        <h3 id="Secure">
-                            Secure
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [TlsStream] Connection)
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>creates a <code>Secure</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#close">
-                        <h3 id="close">
-                            close
-                        </h3>
-                    </a>
-                    <div class="description">
-                        defn
-                    </div>
-                    <p class="sig">
-                        (Fn [Connection] ())
-                    </p>
-                    <pre class="args">
-                        (close conn)
-                    </pre>
-                    <p class="doc">
-                        <p>closes the connection, consuming it.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#close!">
-                        <h3 id="close!">
-                            close!
-                        </h3>
-                    </a>
-                    <div class="description">
-                        defn
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref Connection a)] ())
-                    </p>
-                    <pre class="args">
-                        (close! conn)
-                    </pre>
-                    <p class="doc">
-                        <p>closes the connection by reference.</p>
+                        <p>gets the <code>cookie</code> property of a <code>JarCookie</code>.</p>
 
                     </p>
                 </div>
@@ -144,13 +85,13 @@ the HTTP client to dispatch send/read over either transport.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Connection a)] Connection)
+                        (Fn [(Ref JarCookie a)] JarCookie)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>copies a <code>Connection</code>.</p>
+                        <p>copies a <code>JarCookie</code>.</p>
 
                     </p>
                 </div>
@@ -164,33 +105,53 @@ the HTTP client to dispatch send/read over either transport.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Connection] ())
+                        (Fn [JarCookie] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>deletes a <code>Connection</code>. This should usually not be called manually.</p>
+                        <p>deletes a <code>JarCookie</code>. Should usually not be called manually.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#get-tag">
-                        <h3 id="get-tag">
-                            get-tag
+                    <a class="anchor" href="#host-only">
+                        <h3 id="host-only">
+                            host-only
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Connection a)] Int)
+                        (Fn [(Ref JarCookie a)] (Ref Bool a))
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>Gets the tag from a <code>Connection</code>.</p>
+                        <p>gets the <code>host-only</code> property of a <code>JarCookie</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#init">
+                        <h3 id="init">
+                            init
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [Cookie, Bool] JarCookie)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>JarCookie</code>.</p>
 
                     </p>
                 </div>
@@ -204,53 +165,93 @@ the HTTP client to dispatch send/read over either transport.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Connection a)] String)
+                        (Fn [(Ref JarCookie a)] String)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>converts a <code>Connection</code> to a string.</p>
+                        <p>converts a <code>JarCookie</code> to a string.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#read">
-                        <h3 id="read">
-                            read
+                    <a class="anchor" href="#set-cookie">
+                        <h3 id="set-cookie">
+                            set-cookie
                         </h3>
                     </a>
                     <div class="description">
-                        defn
+                        instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Connection a)] (Result String String))
+                        (Fn [JarCookie, Cookie] JarCookie)
                     </p>
-                    <pre class="args">
-                        (read conn)
-                    </pre>
+                    <span>
+                        
+                    </span>
                     <p class="doc">
-                        <p>reads from the connection. Returns <code>(Result String String)</code>.</p>
+                        <p>sets the <code>cookie</code> property of a <code>JarCookie</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#send">
-                        <h3 id="send">
-                            send
+                    <a class="anchor" href="#set-cookie!">
+                        <h3 id="set-cookie!">
+                            set-cookie!
                         </h3>
                     </a>
                     <div class="description">
-                        defn
+                        instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Connection a), (Ref String b)] (Result Int String))
+                        (Fn [(Ref JarCookie a), Cookie] ())
                     </p>
-                    <pre class="args">
-                        (send conn msg)
-                    </pre>
+                    <span>
+                        
+                    </span>
                     <p class="doc">
-                        <p>sends a string over the connection.</p>
+                        <p>sets the <code>cookie</code> property of a <code>JarCookie</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-host-only">
+                        <h3 id="set-host-only">
+                            set-host-only
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [JarCookie, Bool] JarCookie)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>host-only</code> property of a <code>JarCookie</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-host-only!">
+                        <h3 id="set-host-only!">
+                            set-host-only!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref JarCookie a), Bool] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>host-only</code> property of a <code>JarCookie</code> in place.</p>
 
                     </p>
                 </div>
@@ -264,13 +265,53 @@ the HTTP client to dispatch send/read over either transport.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Connection a)] String)
+                        (Fn [(Ref JarCookie a)] String)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>converts a <code>Connection</code> to a string.</p>
+                        <p>converts a <code>JarCookie</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-cookie">
+                        <h3 id="update-cookie">
+                            update-cookie
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [JarCookie, (Ref (Fn [Cookie] Cookie a) b)] JarCookie)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>cookie</code> property of a <code>JarCookie</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-host-only">
+                        <h3 id="update-host-only">
+                            update-host-only
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [JarCookie, (Ref (Fn [Bool] Bool a) b)] JarCookie)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>host-only</code> property of a <code>JarCookie</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
