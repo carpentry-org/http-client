@@ -54,11 +54,13 @@ and similar functions:
       (or (= &norm &h)
           (and (not (ip-literal? &h)) (byte-ends-with? &h &(fmt ".%s" &norm))))))
 
-  (hidden acceptable-domain?)
-  (private acceptable-domain?)
-  (defn acceptable-domain? [attr host]
-    (let [norm (strip-leading-dot &(canonical-host attr))]
-      (and (String.contains-string? &norm ".") (domain-matches? &norm host))))
+  ; a dot at neither edge, so `.com` and `com.` stay single-label
+  (hidden embedded-dot?)
+  (private embedded-dot?)
+  (defn embedded-dot? [d]
+    (let [n (String.length d)]
+      (and (> n 2)
+           (String.contains-string? &(String.byte-slice d 1 (dec n)) "."))))
 
   (hidden host-matches?)
   (private host-matches?)
@@ -112,6 +114,14 @@ and similar functions:
           new-arr (Array.push-back filtered @e)]
       (set-cookies! jar new-arr)))
 
+  (hidden store-host-only!)
+  (private store-host-only!)
+  (defn store-host-only! [jar c host]
+    (store-entry! jar
+                  &(JarCookie.init
+                    (Cookie.set-domain @c (Maybe.Just @host))
+                    true)))
+
   (doc store! "stores a cookie as a domain cookie, replacing any with the same
 name, domain, and path. The cookie is trusted as given: there is no request
 origin to check it against, so prefer `store-response!` for anything that came
@@ -122,9 +132,11 @@ off the wire.")
 
 A cookie with no `Domain` attribute becomes host-only: it is replayed to the
 URL’s host and to no other. A `Domain` attribute the URL’s host does not
-domain-match is rejected outright, and so is one with no embedded dot — the
-latter is the pre-public-suffix-list approximation of RFC 6265 §5.3 step 5,
-and it lets through registrable multi-label suffixes such as `co.uk`.")
+domain-match is rejected outright. So is one with no embedded dot — the
+pre-public-suffix-list approximation of §5.3 step 5, which lets through
+registrable multi-label suffixes such as `co.uk` — unless it is identical to
+the host, in which case the cookie is kept host-only, so `Domain=localhost`
+from `http://localhost/` still works.")
   (defn store-response! [jar resp url]
     (match (URI.parse url)
       (Result.Error _) ()
@@ -133,14 +145,15 @@ and it lets through registrable multi-label suffixes such as `co.uk`.")
           (for [i 0 (Array.length (Response.cookies resp))]
             (let [raw (Array.unsafe-nth (Response.cookies resp) i)]
               (match @(Cookie.domain raw)
-                (Maybe.Nothing)
-                  (store-entry! jar
-                                &(JarCookie.init
-                                  (Cookie.set-domain @raw (Maybe.Just @&host))
-                                  true))
+                (Maybe.Nothing) (store-host-only! jar raw &host)
                 (Maybe.Just d)
-                  (when (acceptable-domain? &d &host)
-                    (store-entry! jar &(JarCookie.init @raw false)))))))))
+                  (let [norm (strip-leading-dot &(canonical-host &d))]
+                    (cond
+                      (not (embedded-dot? &norm))
+                        (when (= &norm &host) (store-host-only! jar raw &host))
+                      (domain-matches? &norm &host)
+                        (store-entry! jar &(JarCookie.init @raw false))
+                      ()))))))))
 
   (doc matching "returns cookies matching the given URL by domain, path,
 security, and expiry, longest path first (RFC 6265 §5.4 step 2). Cookies of

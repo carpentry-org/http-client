@@ -616,6 +616,29 @@
 
     (set! test
           (assert-equal &test
+            0
+            (CookieJar.size
+              &(jar-from "https://example.com/" (Maybe.Just @"..com")))
+            "a doubled leading dot does not rescue a single-label Domain"))
+
+    (set! test
+          (assert-equal &test
+            1
+            (sent-to "http://localhost/"
+                     (Maybe.Just @"localhost")
+                     "http://localhost/")
+            "a single-label Domain identical to the host is kept"))
+
+    (set! test
+          (assert-equal &test
+            0
+            (sent-to "http://localhost/"
+                     (Maybe.Just @"localhost")
+                     "http://sub.localhost/")
+            "a single-label Domain identical to the host is host-only"))
+
+    (set! test
+          (assert-equal &test
             1
             (sent-to "https://example.com/"
                      (Maybe.Just @".example.com")
