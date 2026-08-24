@@ -549,8 +549,8 @@ Returns <code>(Result Response String)</code>.</p>
                     <p class="doc">
                         <p>sends an HTTP request to the given URL. Returns <code>(Result Response String)</code>.</p>
 <p>Follows up to <code>default-max-redirects</code> HTTP redirects automatically. For 301,
-302, and 303 responses the method is changed to GET. For 307 and 308 the
-original method is preserved.</p>
+302, and 303 responses a GET or HEAD keeps its method and any other method
+becomes a GET. For 307 and 308 the original method is preserved.</p>
 <p>See <code>request-with-max-redirects</code> to control the redirect limit.</p>
 
                     </p>
@@ -667,8 +667,9 @@ given <code>CookieJar</code> and <code>RequestConfig</code>. Returns a <code>Res
                     <p class="doc">
                         <p>sends an HTTP request and returns a
 <code>ResponseStream</code>, following up to <code>max-redirects</code> HTTP redirects.</p>
-<p>For 301, 302, and 303 responses the method is changed to GET and the body is
-dropped. For 307 and 308 responses the original method and body are preserved.</p>
+<p>For 301, 302, and 303 responses a GET or HEAD keeps its method; any other
+method becomes a GET, and the body and the headers describing it are dropped.
+For 307 and 308 responses the original method and body are preserved.</p>
 <p>Pass 0 to disable redirect following.</p>
 
                     </p>

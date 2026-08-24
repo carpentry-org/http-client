@@ -26,6 +26,12 @@
 (defn get-body [url]
   (match (Client.get url) (Result.Success r) @(Response.body &r) _ @""))
 
+; Reports the error text, so a failed request cannot pass for an empty body.
+(defn head-status-and-body [url]
+  (match (Client.head url)
+    (Result.Success r) (fmt "%d [%s]" @(Response.code &r) (Response.body &r))
+    (Result.Error e) e))
+
 (defn count-occurrences [s needle]
   (let-do [n 0
            rest @s
@@ -195,6 +201,36 @@
       (Result.Success r) (Response.ok? &r)
       _ false)
     "307 redirect preserves POST method")
+
+  (assert-equal test
+    "200 []"
+    &(head-status-and-body
+      "http://127.0.0.1:8791/redirect-to?url=/get&status_code=301")
+    "301 redirect keeps HEAD a HEAD")
+
+  (assert-equal test
+    "200 []"
+    &(head-status-and-body
+      "http://127.0.0.1:8791/redirect-to?url=/get&status_code=302")
+    "302 redirect keeps HEAD a HEAD")
+
+  (assert-equal test
+    "200 []"
+    &(head-status-and-body
+      "http://127.0.0.1:8791/redirect-to?url=/get&status_code=303")
+    "303 redirect keeps HEAD a HEAD")
+
+  (assert-equal test
+    0
+    (count-occurrences
+      &(match (Client.post
+          "http://127.0.0.1:8791/redirect-to?url=/headers&status_code=303"
+          {@"Content-Type" [@"application/json"]}
+          "{\"a\": 1}")
+        (Result.Success r) @(Response.body &r)
+        (Result.Error e) e)
+      "Content-")
+    "a redirect that changes the method drops the headers describing the body")
 
   (assert-true test
     (match (Client.request "GET"

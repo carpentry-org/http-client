@@ -180,8 +180,10 @@ those characters are emitted unchanged.
 All return `(Result Response String)` (or `(Result ResponseStream String)` for the streaming variants).
 
 All methods follow HTTP redirects automatically (up to `Client.default-max-redirects`,
-which is 10). For 301/302/303 responses the method is changed to GET and the body is
-dropped. For 307/308 responses the original method and body are preserved. Use the
+which is 10). For 301/302/303 responses a GET or HEAD keeps its method; any other
+method becomes a GET, and the body and the headers describing it (`Content-Type`,
+`Content-Length`, …) are dropped. For 307/308 responses the original method and body
+are preserved. Use the
 `-with-max-redirects` variants to control the limit, or pass 0 to disable.
 
 A relative `Location` is resolved against the URL of the hop that produced it,

@@ -316,10 +316,14 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
     (or (= code 301)
         (or (= code 302) (or (= code 303) (or (= code 307) (= code 308))))))
 
+  ; RFC 9110 §15.4.2–§15.4.4 method rewriting.
   (hidden redirect-verb)
   (private redirect-verb)
   (defn redirect-verb [code verb]
-    (if (or (= code 307) (= code 308)) @verb @"GET"))
+    (cond
+      (or (= code 307) (= code 308)) @verb
+      (or (= verb "GET") (= verb "HEAD")) @verb
+      @"GET"))
 
   ; uri@0.5.1 parses `/` as an empty path, so URI.resolve inherits the base
   ; path; drop this once a uri after 0.5.1 is pinned (carpentry-org/uri#35).
@@ -357,14 +361,25 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
                   (Result.Error _) @location
                   (Result.Success resolved) (URI.str &resolved)))))))
 
-  (hidden remove-content-length)
-  (private remove-content-length)
-  (defn remove-content-length [headers]
+  ; the fields RFC 9110 §15.4 drops when a redirect changes the method.
+  (hidden content-header?)
+  (private content-header?)
+  (defn content-header? [name]
+    (Array.contains?
+      &[@"content-encoding"
+        @"content-language"
+        @"content-location"
+        @"content-type"
+        @"content-length"
+        @"digest"
+        @"last-modified"]
+      &(String.ascii-to-lower name)))
+
+  (hidden remove-content-headers)
+  (private remove-content-headers)
+  (defn remove-content-headers [headers]
     (Map.kv-reduce
-      &(fn [acc k v]
-        (if (= &(String.ascii-to-lower k) "content-length")
-          acc
-          (Map.put acc k v)))
+      &(fn [acc k v] (if (content-header? k) acc (Map.put acc k v)))
       (the (Map String (Array String)) {})
       headers))
 
@@ -449,7 +464,7 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
                                   (when-do (/= &new-verb &cur-verb)
                                     (set! cur-body @"")
                                     (set! cur-headers
-                                          (remove-content-length &cur-headers)))
+                                          (remove-content-headers &cur-headers)))
                                   (set! cur-verb new-verb))
                                 (set! remaining (Int.dec remaining))))))
                       (do
@@ -475,8 +490,9 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
   (doc request-stream-with-max-redirects "sends an HTTP request and returns a
 `ResponseStream`, following up to `max-redirects` HTTP redirects.
 
-For 301, 302, and 303 responses the method is changed to GET and the body is
-dropped. For 307 and 308 responses the original method and body are preserved.
+For 301, 302, and 303 responses a GET or HEAD keeps its method; any other
+method becomes a GET, and the body and the headers describing it are dropped.
+For 307 and 308 responses the original method and body are preserved.
 
 Pass 0 to disable redirect following.")
   (defn request-stream-with-max-redirects [verb url headers body max-redirects]
@@ -541,8 +557,8 @@ Returns `(Result Response String)`. Pass 0 to disable redirect following.")
     "sends an HTTP request to the given URL. Returns `(Result Response String)`.
 
 Follows up to `default-max-redirects` HTTP redirects automatically. For 301,
-302, and 303 responses the method is changed to GET. For 307 and 308 the
-original method is preserved.
+302, and 303 responses a GET or HEAD keeps its method and any other method
+becomes a GET. For 307 and 308 the original method is preserved.
 
 See `request-with-max-redirects` to control the redirect limit.")
   (defn request [verb url headers body]
@@ -749,7 +765,7 @@ See `RequestConfig` for timeout and redirect details.")
                                     (when-do (/= &new-verb &cur-verb)
                                       (set! cur-body @"")
                                       (set! cur-headers
-                                            (remove-content-length &cur-headers)))
+                                            (remove-content-headers &cur-headers)))
                                     (set! cur-verb new-verb))
                                   (set! remaining (Int.dec remaining))))))
                         (do
