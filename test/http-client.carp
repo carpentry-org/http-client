@@ -32,6 +32,33 @@
     (Result.Success r) (fmt "%d [%s]" @(Response.code &r) (Response.body &r))
     (Result.Error e) e))
 
+; The probe headers that reached the target, prefixed with the status code so
+; a failed request cannot pass for a stripped header set.
+(defn surviving-headers [status-code]
+  (let [names [@"CONTENT-TYPE"
+               @"Content-Encoding"
+               @"Content-Language"
+               @"Content-Location"
+               @"Content-Length"
+               @"Digest"
+               @"Last-Modified"
+               @"X-Keep-Me"]]
+    (match (Client.post
+        &(fmt
+          "http://127.0.0.1:8791/redirect-to?url=/headers&status_code=%d"
+          status-code)
+        (Map.from-array
+          (Array.copy-map &(fn [n] (Pair.init @n [@"probe"])) &names))
+        "{\"a\": 1}")
+      (Result.Error e) e
+      (Result.Success r)
+        (let-do [dump (Response.body &r)
+                 kept []]
+          (foreach [n &names]
+                   (when (String.contains-string? dump &(fmt "%s: " n))
+                     (set! kept (Array.push-back kept @n))))
+          (fmt "%d %s" @(Response.code &r) &(String.join "," &kept))))))
+
 (defn count-occurrences [s needle]
   (let-do [n 0
            rest @s
@@ -221,16 +248,14 @@
     "303 redirect keeps HEAD a HEAD")
 
   (assert-equal test
-    0
-    (count-occurrences
-      &(match (Client.post
-          "http://127.0.0.1:8791/redirect-to?url=/headers&status_code=303"
-          {@"Content-Type" [@"application/json"]}
-          "{\"a\": 1}")
-        (Result.Success r) @(Response.body &r)
-        (Result.Error e) e)
-      "Content-")
+    "200 X-Keep-Me"
+    &(surviving-headers 303)
     "a redirect that changes the method drops the headers describing the body")
+
+  (assert-equal test
+    "200 CONTENT-TYPE,Content-Encoding,Content-Language,Content-Location,Content-Length,Digest,Last-Modified,X-Keep-Me"
+    &(surviving-headers 307)
+    "a redirect that keeps the method keeps the headers describing the body")
 
   (assert-true test
     (match (Client.request "GET"
