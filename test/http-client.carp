@@ -27,37 +27,59 @@
   (match (Client.get url) (Result.Success r) @(Response.body &r) _ @""))
 
 ; Reports the error text, so a failed request cannot pass for an empty body.
-(defn head-status-and-body [url]
-  (match (Client.head url)
+(defn status-and-body [res]
+  (match res
     (Result.Success r) (fmt "%d [%s]" @(Response.code &r) (Response.body &r))
     (Result.Error e) e))
 
+(defn head-status-and-body [url] (status-and-body (Client.head url)))
+
+(defn head-with-jar-status-and-body [url]
+  (let-do [jar (CookieJar.create)]
+    (status-and-body (Client.head-with-jar url &jar))))
+
+(def probe-names
+  [@"CONTENT-TYPE"
+   @"Content-Encoding"
+   @"Content-Language"
+   @"Content-Location"
+   @"Content-Length"
+   @"Digest"
+   @"Last-Modified"
+   @"X-Keep-Me"])
+
+(defn probe-map []
+  (Map.from-array
+    (Array.copy-map &(fn [n] (Pair.init @n [@"probe"])) &probe-names)))
+
+(defn probe-url [status-code]
+  (fmt
+    "http://127.0.0.1:8791/redirect-to?url=/headers&status_code=%d"
+    status-code))
+
 ; The probe headers that reached the target, prefixed with the status code so
 ; a failed request cannot pass for a stripped header set.
+(defn kept-headers [res]
+  (match res
+    (Result.Error e) e
+    (Result.Success r)
+      (let-do [dump (Response.body &r)
+               kept []]
+        (foreach [n &probe-names]
+                 (when (String.contains-string? dump &(fmt "%s: " n))
+                   (set! kept (Array.push-back kept @n))))
+        (fmt "%d %s" @(Response.code &r) &(String.join "," &kept)))))
+
 (defn surviving-headers [status-code]
-  (let [names [@"CONTENT-TYPE"
-               @"Content-Encoding"
-               @"Content-Language"
-               @"Content-Location"
-               @"Content-Length"
-               @"Digest"
-               @"Last-Modified"
-               @"X-Keep-Me"]]
-    (match (Client.post
-        &(fmt
-          "http://127.0.0.1:8791/redirect-to?url=/headers&status_code=%d"
-          status-code)
-        (Map.from-array
-          (Array.copy-map &(fn [n] (Pair.init @n [@"probe"])) &names))
-        "{\"a\": 1}")
-      (Result.Error e) e
-      (Result.Success r)
-        (let-do [dump (Response.body &r)
-                 kept []]
-          (foreach [n &names]
-                   (when (String.contains-string? dump &(fmt "%s: " n))
-                     (set! kept (Array.push-back kept @n))))
-          (fmt "%d %s" @(Response.code &r) &(String.join "," &kept))))))
+  (kept-headers (Client.post &(probe-url status-code) (probe-map) "{\"a\": 1}")))
+
+(defn surviving-headers-with-jar [status-code]
+  (let-do [jar (CookieJar.create)]
+    (kept-headers
+      (Client.post-with-jar &(probe-url status-code)
+                            (probe-map)
+                            "{\"a\": 1}"
+                            &jar))))
 
 (defn count-occurrences [s needle]
   (let-do [n 0
@@ -248,6 +270,12 @@
     "303 redirect keeps HEAD a HEAD")
 
   (assert-equal test
+    "200 []"
+    &(head-with-jar-status-and-body
+      "http://127.0.0.1:8791/redirect-to?url=/get&status_code=301")
+    "301 redirect keeps HEAD a HEAD on the cookie-jar path")
+
+  (assert-equal test
     "200 X-Keep-Me"
     &(surviving-headers 303)
     "a redirect that changes the method drops the headers describing the body")
@@ -256,6 +284,16 @@
     "200 CONTENT-TYPE,Content-Encoding,Content-Language,Content-Location,Content-Length,Digest,Last-Modified,X-Keep-Me"
     &(surviving-headers 307)
     "a redirect that keeps the method keeps the headers describing the body")
+
+  (assert-equal test
+    "200 X-Keep-Me"
+    &(surviving-headers-with-jar 303)
+    "the same drop holds on the cookie-jar path")
+
+  (assert-equal test
+    "200 CONTENT-TYPE,Content-Encoding,Content-Language,Content-Location,Content-Length,Digest,Last-Modified,X-Keep-Me"
+    &(surviving-headers-with-jar 307)
+    "the same keep holds on the cookie-jar path")
 
   (assert-true test
     (match (Client.request "GET"
