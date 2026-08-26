@@ -87,9 +87,11 @@ implements the `poll` interface from the
 `poll` returns `Nothing` at the end of a well-formed body and also when the
 framing or the transport failed part-way through it; `ResponseStream.error`
 tells the two apart. The buffered request functions (`Client.get`,
-`Client.request`, and friends) fold that into their result, so a malformed or
-truncated chunked body comes back as `(Result.Error …)` rather than a short
-body with a 200 on it.
+`Client.request`, and friends) fold that into their result, so a malformed
+chunked body, or a `Content-Length` body that ends short, comes back as
+`(Result.Error …)` rather than a short body with a 200 on it. A body delimited
+only by the connection closing declares no length to check against, so it is
+taken as complete however the connection ends.
 
 ### Cookie jar
 

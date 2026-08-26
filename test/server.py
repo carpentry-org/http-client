@@ -7,6 +7,8 @@ Run one instance per origin: `python3 server.py <port>`. All routes are
 served on every port; the cross-origin test just points at a second port.
 """
 
+import socket
+import struct
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -59,6 +61,24 @@ class Handler(BaseHTTPRequestHandler):
         )
         if self.command != "HEAD":
             self.wfile.write(body)
+
+    def _length_body(self, declared, sent):
+        return (
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "
+            + str(declared).encode()
+            + b"\r\nConnection: close\r\n\r\n"
+            + sent
+        )
+
+    def _abort(self, raw):
+        """Writes raw bytes, then resets the connection instead of closing it."""
+        self.wfile.write(raw)
+        time.sleep(0.25)  # give the client time to read before the reset lands
+        self.connection.setsockopt(
+            socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)
+        )
+        self.connection.close()
+        self.close_connection = True
 
     def _body_bytes(self):
         n = int(self.headers.get("Content-Length", 0) or 0)
@@ -208,6 +228,31 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/not-chunked":
             return self._send(
                 200, "plain-body", extra=[("Transfer-Encoding", "xchunked")]
+            )
+
+        # Content-Length bodies that end in a connection reset rather than a
+        # clean close, and one that ends short with a clean close.
+        if path == "/reset-complete":
+            return self._abort(self._length_body(10, b"complete!!"))
+        if path == "/reset-short":
+            return self._abort(self._length_body(64, b"only-ten-b"))
+        if path == "/close-short":
+            self.wfile.write(self._length_body(64, b"only-ten-b"))
+            self.close_connection = True
+            return
+        if path == "/reset-no-length":
+            return self._abort(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
+                b"Connection: close\r\n\r\neof-delimited"
+            )
+
+        # /reject-early: answers without draining the request body, then resets,
+        # which is what a 413, 401 or 400 on an upload looks like on the wire.
+        if path == "/reject-early":
+            return self._abort(
+                b"HTTP/1.1 413 Payload Too Large\r\nContent-Type: text/plain\r\n"
+                b"Content-Length: 17\r\nConnection: close\r\n\r\n"
+                b"payload too large"
             )
 
         # /header-utf8 and /header-continuation: header values that are not

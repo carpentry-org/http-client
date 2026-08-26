@@ -709,4 +709,41 @@
     &(stream-error "http://127.0.0.1:8791/chunked-truncated")
     "a stream that dies mid-chunk carries the reason")
 
+  (assert-equal test
+    "413 [payload too large]"
+    &(status-and-body
+      (Client.post "http://127.0.0.1:8791/reject-early"
+                   {}
+                   &(String.repeat 32768 "x")))
+    "an early reject that resets the connection keeps its status and body")
+
+  (assert-equal test
+    "200 [complete!!]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/reset-complete"))
+    "a complete Content-Length body outlives a reset after it")
+
+  (assert-true test
+    (Result.error? &(Client.get "http://127.0.0.1:8791/reset-short"))
+    "a reset before Content-Length bytes arrive is an error")
+
+  (assert-equal test
+    "truncated body: the connection closed before Content-Length bytes arrived"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/close-short"))
+    "a clean close before Content-Length bytes arrive is an error")
+
+  (assert-equal test
+    "200 [eof-delimited]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/reset-no-length"))
+    "a body with no declared length ends at the reset, not in an error")
+
+  (assert-equal test
+    "413 [payload too large]"
+    &(let-do [jar (CookieJar.create)]
+      (status-and-body
+        (Client.post-with-jar "http://127.0.0.1:8791/reject-early"
+                              {}
+                              &(String.repeat 32768 "x")
+                              &jar)))
+    "the same holds on the cookie-jar path")
+
   (cookie-jar-tests test))

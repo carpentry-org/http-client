@@ -115,6 +115,7 @@ apart.
    error (Maybe String)
    chunked Bool
    done Bool
+   remaining (Maybe Int)
    status-code Int
    parsed-response Response])
 
@@ -191,20 +192,39 @@ apart.
             (do (when (= eol p) (set! scanning false)) (set! p (+ eol 2))))))
       (set-pos! s p)))
 
+  (hidden charge!)
+  (private charge!)
+  (defn charge! [s n]
+    (match-ref (remaining s)
+      (Maybe.Nothing) ()
+      (Maybe.Just left) (set-remaining! s (Maybe.Just (- @left n)))))
+
+  (hidden truncated?)
+  (private truncated?)
+  ; a body with no declared length ends at EOF, so it can never be short
+  (defn truncated? [s]
+    (match-ref (remaining s) (Maybe.Nothing) false (Maybe.Just left) (> @left 0)))
+
+  (hidden end-raw!)
+  (private end-raw!)
+  (defn end-raw! [s why]
+    (do (if (truncated? s) (fail! s why) (set-done! s true)) (Maybe.Nothing)))
+
   (hidden poll-raw)
   (private poll-raw)
   (defn poll-raw [s]
     (if (> (String.length (buf s)) @(pos s))
       (let-do [leftover (unconsumed s)]
         (set-pos! s (String.length (buf s)))
+        (charge! s (String.length &leftover))
         (Maybe.Just leftover))
       (match (Connection.read (conn s))
         (Result.Success chunk)
           (if (String.empty? &chunk)
-            (do (set-done! s true) (Maybe.Nothing))
-            (Maybe.Just chunk))
-        (Result.Error e)
-          (do (fail! s (fmt "read error: %s" &e)) (Maybe.Nothing)))))
+            (end-raw! s
+                      @"truncated body: the connection closed before Content-Length bytes arrived")
+            (do (charge! s (String.length &chunk)) (Maybe.Just chunk)))
+        (Result.Error e) (end-raw! s (fmt "read error: %s" &e)))))
 
   (hidden poll-chunked)
   (private poll-chunked)
@@ -410,6 +430,16 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
   (defn bodyless? [verb code]
     (or (= verb "HEAD") (or (< code 200) (or (= code 204) (= code 304)))))
 
+  (hidden declared-length)
+  (private declared-length)
+  ; how many body bytes the response promises, or Nothing when it promises none
+  (defn declared-length [resp verb code]
+    (if (bodyless? verb code)
+      (Maybe.Nothing)
+      (match (Response.header resp "Content-Length")
+        (Maybe.Nothing) (Maybe.Nothing)
+        (Maybe.Just v) (Int.from-string &v))))
+
   ; RFC 9110 §15.4.2–§15.4.4 method rewriting.
   (hidden redirect-verb)
   (private redirect-verb)
@@ -569,7 +599,8 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
                         (break)))
                     (let-do [leftover @(Pair.b &pair)
                              is-chunked (and (Response.chunked? &resp)
-                                             (not (bodyless? &cur-verb code)))]
+                                             (not (bodyless? &cur-verb code)))
+                             left (declared-length &resp &cur-verb code)]
                       (set! result
                             (Result.Success
                               (ResponseStream.init conn
@@ -578,6 +609,7 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
                                                    (Maybe.Nothing)
                                                    is-chunked
                                                    false
+                                                   left
                                                    code
                                                    resp)))
                       (break)))))))
@@ -875,7 +907,8 @@ See `RequestConfig` for timeout and redirect details.")
                           (break)))
                       (let-do [leftover @(Pair.b &pair)
                                is-chunked (and (Response.chunked? &resp)
-                                               (not (bodyless? &cur-verb code)))]
+                                               (not (bodyless? &cur-verb code)))
+                               left (declared-length &resp &cur-verb code)]
                         (set! result
                               (Result.Success
                                 (ResponseStream.init conn
@@ -884,6 +917,7 @@ See `RequestConfig` for timeout and redirect details.")
                                                      (Maybe.Nothing)
                                                      is-chunked
                                                      false
+                                                     left
                                                      code
                                                      resp)))
                         (break))))))))
