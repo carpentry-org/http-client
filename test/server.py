@@ -49,6 +49,17 @@ class Handler(BaseHTTPRequestHandler):
             + body
         )
 
+    def _chunked_raw(self, body):
+        """Chunked response whose body bytes are written exactly as given."""
+        self.wfile.write(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: text/plain\r\n"
+            b"Transfer-Encoding: chunked\r\n"
+            b"Connection: close\r\n\r\n"
+        )
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
     def _body_bytes(self):
         n = int(self.headers.get("Content-Length", 0) or 0)
         return self.rfile.read(n) if n else b""
@@ -165,6 +176,32 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"%x\r\n%s\r\n0\r\n\r\n" % (len(body), body))
             return
+
+        # chunked framing faults, each written as raw bytes so the exact wire
+        # form reaches the client
+        if path == "/chunked-bad-hex":
+            return self._chunked_raw(b"zz\r\nhello\r\n0\r\n\r\n")
+        if path == "/chunked-hex-prefix":
+            return self._chunked_raw(b"0x5\r\nhello\r\n0\r\n\r\n")
+        if path == "/chunked-truncated":
+            return self._chunked_raw(b"10\r\nshort")
+        if path == "/chunked-no-terminator":
+            return self._chunked_raw(b"5\r\nhello\r\n")
+        if path == "/chunked-missing-crlf":
+            return self._chunked_raw(b"5\r\nhelloXX0\r\n\r\n")
+
+        # a chunk size above 16 MiB, whose data is never sent, so the size
+        # line alone decides the outcome
+        if path == "/chunked-oversize":
+            return self._chunked_raw(b"1000001\r\nhello")
+
+        # a well-formed body with a chunk extension and a trailer section
+        if path == "/chunked-ext":
+            return self._chunked_raw(b"5;name=value\r\nhello\r\n0\r\n\r\n")
+        if path == "/chunked-trailer":
+            return self._chunked_raw(
+                b"5\r\nhello\r\n0\r\nX-Checksum: abc\r\nX-More: 1\r\n\r\n"
+            )
 
         # /not-chunked: `chunked` as a substring of another coding token, with a
         # plain Content-Length body.

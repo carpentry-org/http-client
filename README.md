@@ -74,6 +74,8 @@ For chunked or long-running responses, use `Client.request-stream` to get a
         (match (ResponseStream.poll &stream)
           (Maybe.Nothing) (break)
           (Maybe.Just chunk) (IO.print &chunk)))
+      (when (Maybe.just? (ResponseStream.error &stream))
+        (IO.errorln "the response body was truncated"))
       (ResponseStream.close stream))
   (Result.Error e) (IO.errorln &e))
 ```
@@ -81,6 +83,13 @@ For chunked or long-running responses, use `Client.request-stream` to get a
 `ResponseStream` handles `Transfer-Encoding: chunked` automatically and
 implements the `poll` interface from the
 [streams](https://github.com/carpentry-org/streams) library.
+
+`poll` returns `Nothing` at the end of a well-formed body and also when the
+framing or the transport failed part-way through it; `ResponseStream.error`
+tells the two apart. The buffered request functions (`Client.get`,
+`Client.request`, and friends) fold that into their result, so a malformed or
+truncated chunked body comes back as `(Result.Error …)` rather than a short
+body with a 200 on it.
 
 ### Cookie jar
 
