@@ -7,6 +7,8 @@ Run one instance per origin: `python3 server.py <port>`. All routes are
 served on every port; the cross-origin test just points at a second port.
 """
 
+import socket
+import struct
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -48,6 +50,35 @@ class Handler(BaseHTTPRequestHandler):
             + b"\r\nConnection: close\r\n\r\n"
             + body
         )
+
+    def _chunked_raw(self, body):
+        """Chunked response whose body bytes are written exactly as given."""
+        self.wfile.write(
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: text/plain\r\n"
+            b"Transfer-Encoding: chunked\r\n"
+            b"Connection: close\r\n\r\n"
+        )
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def _length_body(self, declared, sent):
+        return (
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "
+            + str(declared).encode()
+            + b"\r\nConnection: close\r\n\r\n"
+            + sent
+        )
+
+    def _abort(self, raw):
+        """Writes raw bytes, then resets the connection instead of closing it."""
+        self.wfile.write(raw)
+        time.sleep(0.25)  # give the client time to read before the reset lands
+        self.connection.setsockopt(
+            socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)
+        )
+        self.connection.close()
+        self.close_connection = True
 
     def _body_bytes(self):
         n = int(self.headers.get("Content-Length", 0) or 0)
@@ -166,11 +197,62 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(b"%x\r\n%s\r\n0\r\n\r\n" % (len(body), body))
             return
 
+        # chunked framing faults, each written as raw bytes so the exact wire
+        # form reaches the client
+        if path == "/chunked-bad-hex":
+            return self._chunked_raw(b"zz\r\nhello\r\n0\r\n\r\n")
+        if path == "/chunked-hex-prefix":
+            return self._chunked_raw(b"0x5\r\nhello\r\n0\r\n\r\n")
+        if path == "/chunked-truncated":
+            return self._chunked_raw(b"10\r\nshort")
+        if path == "/chunked-no-terminator":
+            return self._chunked_raw(b"5\r\nhello\r\n")
+        if path == "/chunked-missing-crlf":
+            return self._chunked_raw(b"5\r\nhelloXX0\r\n\r\n")
+
+        # a chunk size above 16 MiB, whose data is never sent, so the size
+        # line alone decides the outcome
+        if path == "/chunked-oversize":
+            return self._chunked_raw(b"1000001\r\nhello")
+
+        # a well-formed body with a chunk extension and a trailer section
+        if path == "/chunked-ext":
+            return self._chunked_raw(b"5;name=value\r\nhello\r\n0\r\n\r\n")
+        if path == "/chunked-trailer":
+            return self._chunked_raw(
+                b"5\r\nhello\r\n0\r\nX-Checksum: abc\r\nX-More: 1\r\n\r\n"
+            )
+
         # /not-chunked: `chunked` as a substring of another coding token, with a
         # plain Content-Length body.
         if path == "/not-chunked":
             return self._send(
                 200, "plain-body", extra=[("Transfer-Encoding", "xchunked")]
+            )
+
+        # Content-Length bodies that end in a connection reset rather than a
+        # clean close, and one that ends short with a clean close.
+        if path == "/reset-complete":
+            return self._abort(self._length_body(10, b"complete!!"))
+        if path == "/reset-short":
+            return self._abort(self._length_body(64, b"only-ten-b"))
+        if path == "/close-short":
+            self.wfile.write(self._length_body(64, b"only-ten-b"))
+            self.close_connection = True
+            return
+        if path == "/reset-no-length":
+            return self._abort(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
+                b"Connection: close\r\n\r\neof-delimited"
+            )
+
+        # /reject-early: answers without draining the request body, then resets,
+        # which is what a 413, 401 or 400 on an upload looks like on the wire.
+        if path == "/reject-early":
+            return self._abort(
+                b"HTTP/1.1 413 Payload Too Large\r\nContent-Type: text/plain\r\n"
+                b"Content-Length: 17\r\nConnection: close\r\n\r\n"
+                b"payload too large"
             )
 
         # /header-utf8 and /header-continuation: header values that are not

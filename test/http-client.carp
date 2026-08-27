@@ -22,6 +22,26 @@
         (ResponseStream.close stream)
         n)))
 
+; The framing error the stream ended on, or how many chunks it ended cleanly
+; after, so a clean end can never read as a failure.
+(defn stream-error [url]
+  (match (Client.request-stream "GET"
+                                url
+                                (the (Map String (Array String)) {})
+                                "")
+    (Result.Error e) e
+    (Result.Success stream)
+      (let-do [n 0]
+        (while-do true
+          (match (ResponseStream.poll &stream)
+            (Maybe.Nothing) (break)
+            (Maybe.Just _) (set! n (Int.inc n))))
+        (let-do [e (match @(ResponseStream.error &stream)
+                   (Maybe.Just e) e
+                   (Maybe.Nothing) (fmt "clean after %d chunks" n))]
+          (ResponseStream.close stream)
+          e))))
+
 ; Returns the empty string on request failure.
 (defn get-body [url]
   (match (Client.get url) (Result.Success r) @(Response.body &r) _ @""))
@@ -621,5 +641,109 @@
     &@"HELLO-BODY"
     &(get-body "http://127.0.0.1:8791/header-continuation")
     "a header value that is not valid UTF-8 leaves the body intact")
+
+  (assert-equal test
+    "malformed chunked body: invalid chunk size 'zz'"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/chunked-bad-hex"))
+    "a bad hex chunk size is an error, not a short body")
+
+  (assert-equal test
+    "malformed chunked body: invalid chunk size '0x5'"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/chunked-hex-prefix"))
+    "a 0x-prefixed chunk size is rejected")
+
+  (assert-equal test
+    "malformed chunked body: truncated chunk data"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/chunked-truncated"))
+    "a chunk cut off mid-data is an error, not a short body")
+
+  (assert-equal test
+    "malformed chunked body: missing terminating zero-size chunk"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/chunked-no-terminator"))
+    "a body that never sends the zero-size chunk is an error")
+
+  (assert-equal test
+    "malformed chunked body: chunk data missing CRLF"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/chunked-missing-crlf"))
+    "chunk data not followed by CRLF is an error")
+
+  (assert-equal test
+    "malformed chunked body: truncated chunk data"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/chunked-oversize"))
+    "a chunk size above the old 16 MiB cap is no longer a parse error")
+
+  (assert-equal test
+    "malformed chunked body: invalid chunk size 'zz'"
+    &(let-do [jar (CookieJar.create)]
+      (status-and-body
+        (Client.get-with-jar "http://127.0.0.1:8791/chunked-bad-hex" &jar)))
+    "the same holds on the cookie-jar path")
+
+  (assert-equal test
+    "200 [hello]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/chunked-ext"))
+    "a chunk extension after the size is ignored")
+
+  (assert-equal test
+    "200 [hello]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/chunked-trailer"))
+    "a trailer section after the last chunk is consumed, not decoded")
+
+  (assert-equal test
+    "200 []"
+    &(head-status-and-body "http://127.0.0.1:8791/chunked-trailer")
+    "a HEAD response announcing chunked has no body to decode")
+
+  (assert-equal test
+    "clean after 40 chunks"
+    &(stream-error "http://127.0.0.1:8791/chunked-utf8/40")
+    "a well-formed chunked stream ends with no error")
+
+  (assert-equal test
+    "clean after 1 chunks"
+    &(stream-error "http://127.0.0.1:8791/chunked-trailer")
+    "a trailered chunked stream ends with no error")
+
+  (assert-equal test
+    "malformed chunked body: truncated chunk data"
+    &(stream-error "http://127.0.0.1:8791/chunked-truncated")
+    "a stream that dies mid-chunk carries the reason")
+
+  (assert-equal test
+    "413 [payload too large]"
+    &(status-and-body
+      (Client.post "http://127.0.0.1:8791/reject-early"
+                   {}
+                   &(String.repeat 32768 "x")))
+    "an early reject that resets the connection keeps its status and body")
+
+  (assert-equal test
+    "200 [complete!!]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/reset-complete"))
+    "a complete Content-Length body outlives a reset after it")
+
+  (assert-true test
+    (Result.error? &(Client.get "http://127.0.0.1:8791/reset-short"))
+    "a reset before Content-Length bytes arrive is an error")
+
+  (assert-equal test
+    "truncated body: the connection closed before Content-Length bytes arrived"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/close-short"))
+    "a clean close before Content-Length bytes arrive is an error")
+
+  (assert-equal test
+    "200 [eof-delimited]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/reset-no-length"))
+    "a body with no declared length ends at the reset, not in an error")
+
+  (assert-equal test
+    "413 [payload too large]"
+    &(let-do [jar (CookieJar.create)]
+      (status-and-body
+        (Client.post-with-jar "http://127.0.0.1:8791/reject-early"
+                              {}
+                              &(String.repeat 32768 "x")
+                              &jar)))
+    "the same holds on the cookie-jar path")
 
   (cookie-jar-tests test))
