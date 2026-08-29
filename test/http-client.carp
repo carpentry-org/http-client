@@ -114,6 +114,10 @@
             (set! seen (Array.push-back seen (drop-bytes line 6)))))
         (String.join "|" &seen))))
 
+; Lets the assertions below reach the private `host-header`.
+(defmodule Client
+  (defn probe-host-header [scheme host port] (host-header scheme host port)))
+
 (defn count-occurrences [s needle]
   (let-do [n 0
            rest @s
@@ -782,32 +786,32 @@
 
   (assert-equal test
     "example.com"
-    &(Client.host-header "http" "example.com" 80)
+    &(Client.probe-host-header "http" "example.com" 80)
     "port 80 is left out of an http Host header")
 
   (assert-equal test
     "example.com:8080"
-    &(Client.host-header "http" "example.com" 8080)
+    &(Client.probe-host-header "http" "example.com" 8080)
     "any other port is part of an http Host header")
 
   (assert-equal test
     "example.com"
-    &(Client.host-header "https" "example.com" 443)
+    &(Client.probe-host-header "https" "example.com" 443)
     "port 443 is left out of an https Host header")
 
   (assert-equal test
     "example.com:443"
-    &(Client.host-header "http" "example.com" 443)
+    &(Client.probe-host-header "http" "example.com" 443)
     "443 is not a default port for http")
 
   (assert-equal test
     "[::1]:8080"
-    &(Client.host-header "http" "[::1]" 8080)
+    &(Client.probe-host-header "http" "[::1]" 8080)
     "an IPv6 literal keeps its brackets next to a port")
 
   (assert-equal test
     "[::1]"
-    &(Client.host-header "http" "[::1]" 80)
+    &(Client.probe-host-header "http" "[::1]" 80)
     "an IPv6 literal keeps its brackets without a port")
 
   (cookie-jar-tests test))
