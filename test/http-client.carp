@@ -101,6 +101,23 @@
                             "{\"a\": 1}"
                             &jar))))
 
+; Every Host line the origin echoed back, joined, so a duplicate or missing
+; header cannot read as the expected one.
+(defn seen-hosts [res]
+  (match res
+    (Result.Error e) e
+    (Result.Success r)
+      (let-do [seen []]
+        (foreach
+          [line &(String.split-by (Response.body &r) &[\newline])]
+          (when (byte-starts-with? line "Host: ")
+            (set! seen (Array.push-back seen (drop-bytes line 6)))))
+        (String.join "|" &seen))))
+
+; Lets the assertions below reach the private `host-header`.
+(defmodule Client
+  (defn probe-host-header [scheme host port] (host-header scheme host port)))
+
 (defn count-occurrences [s needle]
   (let-do [n 0
            rest @s
@@ -745,5 +762,56 @@
                               &(String.repeat 32768 "x")
                               &jar)))
     "the same holds on the cookie-jar path")
+
+  (assert-equal test
+    "127.0.0.1:8791"
+    &(seen-hosts (Client.get "http://127.0.0.1:8791/headers"))
+    "a non-default port is part of the Host header")
+
+  (assert-equal test
+    "127.0.0.1:8791"
+    &(seen-hosts
+      (Client.request "GET"
+                      "http://127.0.0.1:8791/headers"
+                      {@"Host" [@"caller.example"]}
+                      ""))
+    "the Host header comes from the URL, not from the caller's headers")
+
+  (assert-equal test
+    "127.0.0.1:8792"
+    &(seen-hosts
+      (Client.get
+        "http://127.0.0.1:8791/redirect-to?url=http%3A%2F%2F127.0.0.1%3A8792%2Fheaders&status_code=302"))
+    "a cross-origin redirect carries the new origin's Host header")
+
+  (assert-equal test
+    "example.com"
+    &(Client.probe-host-header "http" "example.com" 80)
+    "port 80 is left out of an http Host header")
+
+  (assert-equal test
+    "example.com:8080"
+    &(Client.probe-host-header "http" "example.com" 8080)
+    "any other port is part of an http Host header")
+
+  (assert-equal test
+    "example.com"
+    &(Client.probe-host-header "https" "example.com" 443)
+    "port 443 is left out of an https Host header")
+
+  (assert-equal test
+    "example.com:443"
+    &(Client.probe-host-header "http" "example.com" 443)
+    "443 is not a default port for http")
+
+  (assert-equal test
+    "[::1]:8080"
+    &(Client.probe-host-header "http" "[::1]" 8080)
+    "an IPv6 literal keeps its brackets next to a port")
+
+  (assert-equal test
+    "[::1]"
+    &(Client.probe-host-header "http" "[::1]" 80)
+    "an IPv6 literal keeps its brackets without a port")
 
   (cookie-jar-tests test))

@@ -335,6 +335,13 @@ that cares about a truncated body must check `error` afterwards.")
   (defn default-port [scheme]
     (cond (= scheme "https") 443 (= scheme "http") 80 80))
 
+  ; RFC 9110 §7.2: the field value is the whole authority, minus a port that
+  ; is the scheme's default. `URI.host` keeps the brackets on IPv6 literals.
+  (hidden host-header)
+  (private host-header)
+  (defn host-header [scheme host port]
+    (if (= port (default-port scheme)) @host (fmt "%s:%d" host port)))
+
   (hidden connect)
   (private connect)
   (defn connect [scheme host port config]
@@ -373,7 +380,7 @@ that cares about a truncated body must check `error` afterwards.")
             (match (connect &scheme &host port config)
               (Result.Error e) (Result.Error e)
               (Result.Success conn)
-                (let [host-vals [@&host]
+                (let [host-vals [(host-header &scheme &host port)]
                       conn-vals [@"close"]
                       with-host (Map.put headers &@"Host" &host-vals)
                       full-headers (Map.put with-host &@"Connection" &conn-vals)
