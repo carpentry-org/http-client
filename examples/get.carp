@@ -10,4 +10,4 @@
       (do
         (IO.println &(Int.str @(Response.code &r)))
         (println* (Response.body &r)))
-    (Result.Error e) (IO.errorln &e)))
+    (Result.Error e) (IO.errorln &(ClientError.str &e))))

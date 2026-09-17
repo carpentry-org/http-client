@@ -29,7 +29,7 @@
                                 url
                                 (the (Map String (Array String)) {})
                                 "")
-    (Result.Error e) e
+    (Result.Error e) (ClientError.message &e)
     (Result.Success stream)
       (let-do [n 0]
         (while-do true
@@ -37,10 +37,76 @@
             (Maybe.Nothing) (break)
             (Maybe.Just _) (set! n (Int.inc n))))
         (let-do [e (match @(ResponseStream.error &stream)
-                   (Maybe.Just e) e
+                   (Maybe.Just e) (ClientError.message &e)
                    (Maybe.Nothing) (fmt "clean after %d chunks" n))]
           (ResponseStream.close stream)
           e))))
+
+; Drives `request-stream` the way a caller with its own retry logic does, then
+; hands the body to the now-public `Client.drain-stream`. Reports the error text
+; on failure, so a drained error cannot pass for a body.
+(defn drained-body [url]
+  (match (Client.request-stream "GET"
+                                url
+                                (the (Map String (Array String)) {})
+                                "")
+    (Result.Error e) (ClientError.message &e)
+    (Result.Success stream)
+      (let-do [drained (Client.drain-stream &stream)]
+        (ResponseStream.close stream)
+        (match drained
+          (Result.Success body) body
+          (Result.Error e) (ClientError.message &e)))))
+
+; Names the ClientError variant a request ended on, so a misclassification
+; reads differently from a failure to classify at all.
+(defn error-kind [res]
+  (match res
+    (Result.Success _) @"ok"
+    (Result.Error e)
+      (match e
+        (ClientError.Uri _) @"uri"
+        (ClientError.Dns _) @"dns"
+        (ClientError.Connect _) @"connect"
+        (ClientError.Tls _) @"tls"
+        (ClientError.Send _) @"send"
+        (ClientError.Receive _) @"receive"
+        (ClientError.Parse _) @"parse"
+        (ClientError.Redirect _) @"redirect")))
+
+; The two retry decisions, rendered together: a caller reads both before
+; deciding whether another attempt is worth anything.
+(defn retry-shape [res]
+  (match res
+    (Result.Success _) @"ok"
+    (Result.Error e)
+      (fmt "retryable=%s delivered=%s"
+           (if (ClientError.retryable? &e) "true" "false")
+           (if (ClientError.delivered? &e) "true" "false"))))
+
+; The variant the stream itself ended on, which is how a body that dies
+; mid-flight is classified.
+(defn stream-error-kind [url]
+  (match (Client.request-stream "GET"
+                                url
+                                (the (Map String (Array String)) {})
+                                "")
+    (Result.Error e) @"request failed"
+    (Result.Success stream)
+      (let-do [_ 0]
+        (while-do true
+          (match (ResponseStream.poll &stream)
+            (Maybe.Nothing) (break)
+            (Maybe.Just _) ()))
+        (let-do [kind (match @(ResponseStream.error &stream)
+                   (Maybe.Nothing) @"clean"
+                   (Maybe.Just e)
+                     (match e
+                       (ClientError.Receive _) @"receive"
+                       (ClientError.Parse _) @"parse"
+                       _ @"other"))]
+          (ResponseStream.close stream)
+          kind))))
 
 ; Returns the empty string on request failure.
 (defn get-body [url]
@@ -50,7 +116,7 @@
 (defn status-and-body [res]
   (match res
     (Result.Success r) (fmt "%d [%s]" @(Response.code &r) (Response.body &r))
-    (Result.Error e) e))
+    (Result.Error e) (ClientError.message &e)))
 
 (defn head-status-and-body [url] (status-and-body (Client.head url)))
 
@@ -81,7 +147,7 @@
 ; a failed request cannot pass for a stripped header set.
 (defn kept-headers [res]
   (match res
-    (Result.Error e) e
+    (Result.Error e) (ClientError.message &e)
     (Result.Success r)
       (let-do [dump (Response.body &r)
                kept []]
@@ -105,7 +171,7 @@
 ; header cannot read as the expected one.
 (defn seen-hosts [res]
   (match res
-    (Result.Error e) e
+    (Result.Error e) (ClientError.message &e)
     (Result.Success r)
       (let-do [seen []]
         (foreach
@@ -725,6 +791,89 @@
     "malformed chunked body: truncated chunk data"
     &(stream-error "http://127.0.0.1:8791/chunked-truncated")
     "a stream that dies mid-chunk carries the reason")
+
+  (assert-equal test
+    "ok"
+    &(drained-body "http://127.0.0.1:8791/get")
+    "drain-stream returns a Content-Length body")
+
+  (assert-equal test
+    "folded-chunked-body"
+    &(drained-body "http://127.0.0.1:8791/chunked-folded")
+    "drain-stream decodes a chunked body")
+
+  (assert-equal test
+    "malformed chunked body: truncated chunk data"
+    &(drained-body "http://127.0.0.1:8791/chunked-truncated")
+    "drain-stream reports the framing error instead of a short body")
+
+  ; --- ClientError classification ---
+
+  (assert-equal test
+    "uri"
+    &(error-kind (Client.get "not a url"))
+    "a URL that does not parse is a Uri error")
+
+  (assert-equal test
+    "uri"
+    &(error-kind (Client.get "http:///path"))
+    "a URL with no host is a Uri error")
+
+  ; Underscore labels are not legal host names, so this fails in the stub
+  ; resolver and needs no network. Any resolver answer is still a Dns error.
+  (assert-equal test
+    "dns"
+    &(error-kind (Client.get "http://a_b_c_d/"))
+    "a host name that cannot resolve is a Dns error")
+
+  (assert-equal test
+    "connect"
+    &(error-kind (Client.get "http://127.0.0.1:9/"))
+    "a resolvable host that refuses is a Connect error")
+
+  (assert-equal test
+    "redirect"
+    &(error-kind
+      (Client.request-with-max-redirects "GET"
+                                         "http://127.0.0.1:8791/redirect/20"
+                                         (the (Map String (Array String)) {})
+                                         ""
+                                         2))
+    "exhausting the redirect budget is a Redirect error")
+
+  ; The request never left, so retrying repeats nothing.
+  (assert-equal test
+    "retryable=true delivered=false"
+    &(retry-shape (Client.get "http://127.0.0.1:9/"))
+    "a refused connection is worth retrying and delivered nothing")
+
+  ; Neither of these gets better on a second attempt.
+  (assert-equal test
+    "retryable=false delivered=false"
+    &(retry-shape (Client.get "not a url"))
+    "a malformed URL is not worth retrying")
+
+  (assert-equal test
+    "retryable=false delivered=false"
+    &(retry-shape
+      (Client.request-with-max-redirects "GET"
+                                         "http://127.0.0.1:8791/redirect/20"
+                                         (the (Map String (Array String)) {})
+                                         ""
+                                         2))
+    "an exhausted redirect chain is not worth retrying")
+
+  ; Chunk framing that does not parse is the server's doing, not the wire's.
+  (assert-equal test
+    "parse"
+    &(stream-error-kind "http://127.0.0.1:8791/chunked-truncated")
+    "a malformed chunked body is a Parse error")
+
+  ; A Content-Length body that stops early is the wire's doing.
+  (assert-equal test
+    "receive"
+    &(stream-error-kind "http://127.0.0.1:8791/close-short")
+    "a body that ends before Content-Length is a Receive error")
 
   (assert-equal test
     "413 [payload too large]"

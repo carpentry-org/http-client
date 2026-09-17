@@ -1,6 +1,6 @@
-(load "git@github.com:carpentry-org/socket@0.2.3")
+(load "git@github.com:carpentry-org/socket@0.2.5")
 (load "git@github.com:carpentry-org/http@0.5.0")
-(load "git@github.com:carpentry-org/tls@0.2.0")
+(load "git@github.com:carpentry-org/tls@0.2.1")
 (load "git@github.com:carpentry-org/strbuf@0.2.1")
 
 ; Byte-indexed prefix/suffix tests; the core ones measure in bytes but slice
@@ -87,6 +87,90 @@ currently support a timeout parameter.")
     "creates a RequestConfig with no timeouts and up to 10 redirects.")
   (defn default [] (RequestConfig.init 0 0 10)))
 
+(doc ClientError "says what failed in an HTTP request, and at which stage.
+
+The stage answers two questions a string cannot. `retryable?` says whether
+another attempt could succeed. `delivered?` says whether the server already
+received the request, so a retry would repeat work it has already done. The two
+are independent: a `Receive` failure is worth retrying and has been delivered.
+
+- `Uri`: the URL could not be parsed, or names no host
+- `Dns`: the host name could not be resolved
+- `Connect`: no resolved address accepted a connection
+- `Tls`: the TLS handshake failed, certificate verification included
+- `Send`: the request could not be written to the connection
+- `Receive`: reading the response failed, or it ended early
+- `Parse`: the response arrived but is not well-formed HTTP
+- `Redirect`: the redirect chain could not be followed")
+(deftype ClientError
+  (Uri [String])
+  (Dns [String])
+  (Connect [String])
+  (Tls [String])
+  (Send [String])
+  (Receive [String])
+  (Parse [String])
+  (Redirect [String]))
+
+(defmodule ClientError
+  (doc message "returns the underlying error text, without the stage.")
+  (defn message [e]
+    (match-ref e
+      (ClientError.Uri m) @m
+      (ClientError.Dns m) @m
+      (ClientError.Connect m) @m
+      (ClientError.Tls m) @m
+      (ClientError.Send m) @m
+      (ClientError.Receive m) @m
+      (ClientError.Parse m) @m
+      (ClientError.Redirect m) @m))
+
+  (doc retryable? "whether another attempt could plausibly succeed.
+
+A name that does not resolve, a host that refuses and a read that fails can all
+be transient. A malformed URL, a failed handshake, an unfollowable redirect
+chain and a malformed response cannot: they fail the same way every time.")
+  (defn retryable? [e]
+    (match-ref e
+      (ClientError.Uri _) false
+      (ClientError.Dns _) true
+      (ClientError.Connect _) true
+      (ClientError.Tls _) false
+      (ClientError.Send _) true
+      (ClientError.Receive _) true
+      (ClientError.Parse _) false
+      (ClientError.Redirect _) false))
+
+  (doc delivered? "whether the server received the request before the failure.
+
+The whole request is written before the first read, so anything that fails
+while reading the response means the server has already acted on it. Retrying
+those repeats the work: for a request that is not idempotent, that is a second
+side effect, not a second chance.")
+  (defn delivered? [e]
+    (match-ref e
+      (ClientError.Uri _) false
+      (ClientError.Dns _) false
+      (ClientError.Connect _) false
+      (ClientError.Tls _) false
+      (ClientError.Send _) false
+      (ClientError.Receive _) true
+      (ClientError.Parse _) true
+      (ClientError.Redirect _) false))
+
+  (doc str "formats a `ClientError` as a human-readable string.")
+  (defn str [e]
+    (match-ref e
+      (ClientError.Uri m) (fmt "bad URL: %s" m)
+      (ClientError.Dns m) (fmt "cannot resolve host: %s" m)
+      (ClientError.Connect m) (fmt "cannot connect: %s" m)
+      (ClientError.Tls m) (fmt "TLS handshake failed: %s" m)
+      (ClientError.Send m) (fmt "cannot send request: %s" m)
+      (ClientError.Receive m) (fmt "cannot read response: %s" m)
+      (ClientError.Parse m) (fmt "malformed response: %s" m)
+      (ClientError.Redirect m) (fmt "cannot follow redirect: %s" m)))
+  (implements str ClientError.str))
+
 (doc ResponseStream "is a pull-based stream for reading HTTP response bodies.
 Handles chunked transfer-encoding automatically. Implements the `poll` interface
 from the streams library.
@@ -106,13 +190,13 @@ apart.
       (when (Maybe.just? (ResponseStream.error &stream))
         (IO.errorln \"the response body was truncated\"))
       (ResponseStream.close stream))
-  (Result.Error e) (IO.errorln &e))
+  (Result.Error e) (IO.errorln &(ClientError.str &e)))
 ```")
 (deftype ResponseStream
   [conn Connection
    buf String
    pos Int
-   error (Maybe String)
+   error (Maybe ClientError)
    chunked Bool
    done Bool
    remaining (Maybe Int)
@@ -157,7 +241,18 @@ apart.
 
   (hidden fail!)
   (private fail!)
-  (defn fail! [s msg] (do (set-error! s (Maybe.Just msg)) (set-done! s true)))
+  (defn fail! [s e] (do (set-error! s (Maybe.Just e)) (set-done! s true)))
+
+  ; The two ways a body dies. A transport read that fails or stops early is a
+  ; `Receive`; chunk framing that does not parse is a `Parse`, and no retry
+  ; will make the server frame it correctly.
+  (hidden fail-receive!)
+  (private fail-receive!)
+  (defn fail-receive! [s msg] (fail! s (ClientError.Receive msg)))
+
+  (hidden fail-parse!)
+  (private fail-parse!)
+  (defn fail-parse! [s msg] (fail! s (ClientError.Parse msg)))
 
   (hidden unconsumed)
   (private unconsumed)
@@ -169,7 +264,7 @@ apart.
   ; appends one read to the unconsumed tail; false at EOF or on a transport error
   (defn fill! [s]
     (match (Connection.read (conn s))
-      (Result.Error e) (do (fail! s (fmt "read error: %s" &e)) false)
+      (Result.Error e) (do (fail-receive! s (fmt "read error: %s" &e)) false)
       (Result.Success chunk)
         (if (String.empty? &chunk)
           false
@@ -208,7 +303,9 @@ apart.
   (hidden end-raw!)
   (private end-raw!)
   (defn end-raw! [s why]
-    (do (if (truncated? s) (fail! s why) (set-done! s true)) (Maybe.Nothing)))
+    (do
+      (if (truncated? s) (fail-receive! s why) (set-done! s true))
+      (Maybe.Nothing)))
 
   (hidden poll-raw)
   (private poll-raw)
@@ -238,10 +335,10 @@ apart.
           (if (= eol -1)
             (unless-do (fill! s)
               (when (Maybe.nothing? (error s))
-                (fail! s
-                       (if (< p len)
-                         @"malformed chunked body: unterminated chunk size line"
-                         @"malformed chunked body: missing terminating zero-size chunk")))
+                (fail-parse! s
+                             (if (< p len)
+                               @"malformed chunked body: unterminated chunk size line"
+                               @"malformed chunked body: missing terminating zero-size chunk")))
               (set! running false))
             (let [line &(String.byte-slice (buf s) p eol)
                   semi (String.index-of line \;)
@@ -250,10 +347,10 @@ apart.
               (match (parse-hex hex)
                 (Maybe.Nothing)
                   (do
-                    (fail! s
-                           (fmt
-                             "malformed chunked body: invalid chunk size '%s'"
-                             hex))
+                    (fail-parse! s
+                                 (fmt
+                                   "malformed chunked body: invalid chunk size '%s'"
+                                   hex))
                     (set! running false))
                 (Maybe.Just size)
                   (if (= size 0)
@@ -268,8 +365,8 @@ apart.
                       (if (> size (- avail 2))
                         (unless-do (fill! s)
                           (when (Maybe.nothing? (error s))
-                            (fail! s
-                                   @"malformed chunked body: truncated chunk data"))
+                            (fail-parse! s
+                                         @"malformed chunked body: truncated chunk data"))
                           (set! running false))
                         (let-do [end (+ start size)]
                           (if (crlf-at? (buf s) end)
@@ -279,8 +376,8 @@ apart.
                                                                    start
                                                                    end)))
                               (set-pos! s (+ end 2)))
-                            (fail! s
-                                   @"malformed chunked body: chunk data missing CRLF"))
+                            (fail-parse! s
+                                         @"malformed chunked body: chunk data missing CRLF"))
                           (set! running false))))))))))
       result))
 
@@ -305,7 +402,7 @@ that cares about a truncated body must check `error` afterwards.")
 ```
 (match (Client.get \"https://example.com/\")
   (Result.Success r) (println* (Response.body &r))
-  (Result.Error e) (IO.errorln &e))
+  (Result.Error e) (IO.errorln &(ClientError.str &e)))
 ```
 
 ## POST with headers
@@ -314,7 +411,7 @@ that cares about a truncated body must check `error` afterwards.")
          {@\"Content-Type\" [@\"application/json\"]}
          \"{\\\"key\\\": 1}\")
   (Result.Success r) (println* (Response.body &r))
-  (Result.Error e) (IO.errorln &e))
+  (Result.Error e) (IO.errorln &(ClientError.str &e)))
 ```
 
 ## Streaming
@@ -327,7 +424,7 @@ that cares about a truncated body must check `error` afterwards.")
           (Maybe.Nothing) (break)
           (Maybe.Just chunk) (IO.print &chunk)))
       (ResponseStream.close stream))
-  (Result.Error e) (IO.errorln &e))
+  (Result.Error e) (IO.errorln &(ClientError.str &e)))
 ```")
 (defmodule Client
   (hidden default-port)
@@ -344,39 +441,54 @@ that cares about a truncated body must check `error` afterwards.")
 
   (hidden connect)
   (private connect)
+  (hidden from-tls-error)
+  (private from-tls-error)
+  (defn from-tls-error [e]
+    (match e
+      (TlsError.Resolve m) (ClientError.Dns m)
+      (TlsError.Connect m) (ClientError.Connect m)
+      (TlsError.Handshake m) (ClientError.Tls m)))
+
+  (hidden from-connect-error)
+  (private from-connect-error)
+  (defn from-connect-error [e]
+    (match e
+      (ConnectError.Resolve m) (ClientError.Dns m)
+      (ConnectError.Connect m) (ClientError.Connect m)))
+
   (defn connect [scheme host port config]
     (if (= scheme "https")
-      (match (TlsStream.connect host port)
+      (match (TlsStream.connect-classified host port)
         (Result.Success s)
           (do
             (when (> @(RequestConfig.read-timeout config) 0)
               (TlsStream.set-timeout &s @(RequestConfig.read-timeout config)))
             (Result.Success (Connection.Secure s)))
-        (Result.Error e) (Result.Error e))
+        (Result.Error e) (Result.Error (from-tls-error e)))
       (let [tcp-result (if (> @(RequestConfig.connect-timeout config) 0)
-              (TcpStream.connect-timeout host
-                                         port
-                                         @(RequestConfig.connect-timeout config))
-              (TcpStream.connect host port))]
+              (TcpStream.connect-timeout-classified host
+                                                    port
+                                                    @(RequestConfig.connect-timeout config))
+              (TcpStream.connect-classified host port))]
         (match tcp-result
           (Result.Success s)
             (do
               (when (> @(RequestConfig.read-timeout config) 0)
                 (TcpStream.set-timeout &s @(RequestConfig.read-timeout config)))
               (Result.Success (Connection.Plain s)))
-          (Result.Error e) (Result.Error e)))))
+          (Result.Error e) (Result.Error (from-connect-error e))))))
 
   (hidden build-and-send)
   (private build-and-send)
   (defn build-and-send [verb url headers body config]
     (match (URI.parse url)
-      (Result.Error e) (Result.Error @&e)
+      (Result.Error e) (Result.Error (ClientError.Uri @&e))
       (Result.Success uri)
         (let [scheme (Maybe.from @(URI.scheme &uri) @"http")
               host (Maybe.from @(URI.host &uri) @"")
               port (Maybe.from @(URI.port &uri) (default-port &scheme))]
           (if (= (String.length &host) 0)
-            (Result.Error @"missing host in URL")
+            (Result.Error (ClientError.Uri @"missing host in URL"))
             (match (connect &scheme &host port config)
               (Result.Error e) (Result.Error e)
               (Result.Success conn)
@@ -388,7 +500,9 @@ that cares about a truncated body must check `error` afterwards.")
                   (match (Connection.send &conn &(Request.str &req))
                     (Result.Success _) (Result.Success conn)
                     (Result.Error e)
-                      (do (Connection.close conn) (Result.Error e)))))))))
+                      (do
+                        (Connection.close conn)
+                        (Result.Error (ClientError.Send e))))))))))
 
   (hidden read-headers)
   (private read-headers)
@@ -410,14 +524,14 @@ that cares about a truncated body must check `error` afterwards.")
         (StringBuf.delete sb)
         (let [split-pos (String.index-of-string &acc "\r\n\r\n")]
           (if (< split-pos 0)
-            (Result.Error @"incomplete HTTP headers")
+            (Result.Error (ClientError.Receive @"incomplete HTTP headers"))
             (let [header-end (+ split-pos 4)
                   header-text (String.byte-slice &acc 0 header-end)
                   body-start (String.byte-slice &acc
                                                 header-end
                                                 (String.length &acc))]
               (match (Response.parse &header-text)
-                (Result.Error e) (Result.Error e)
+                (Result.Error e) (Result.Error (ClientError.Parse e))
                 (Result.Success resp)
                   (Result.Success (Pair.init resp body-start)))))))))
 
@@ -553,7 +667,8 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
              cur-headers headers
              max-redir @(RequestConfig.max-redirects config)
              remaining max-redir
-             result (the (Result ResponseStream String) (Result.Error @""))]
+             result (the (Result ResponseStream ClientError)
+                         (Result.Error (ClientError.Redirect @"")))]
       (while-do true
         (match (build-and-send &cur-verb &cur-url @&cur-headers &cur-body config)
           (Result.Error e) (do (set! result (Result.Error e)) (break))
@@ -574,7 +689,8 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
                           (do
                             (Connection.close conn)
                             (set! result
-                                  (Result.Error @"redirect without Location header"))
+                                  (Result.Error
+                                    (ClientError.Redirect @"redirect without Location header")))
                             (break))
                         (Maybe.Just location)
                           (let [trimmed (Pattern.trim &location)]
@@ -582,7 +698,8 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
                               (do
                                 (Connection.close conn)
                                 (set! result
-                                      (Result.Error @"redirect with empty Location header"))
+                                      (Result.Error
+                                        (ClientError.Redirect @"redirect with empty Location header")))
                                 (break))
                               (let-do [new-url (resolve-location &cur-url
                                                                  &trimmed)]
@@ -602,7 +719,8 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
                         (Connection.close conn)
                         (set! result
                               (Result.Error
-                                (fmt "too many redirects (max %d)" max-redir)))
+                                (ClientError.Redirect
+                                  (fmt "too many redirects (max %d)" max-redir))))
                         (break)))
                     (let-do [leftover @(Pair.b &pair)
                              is-chunked (and (Response.chunked? &resp)
@@ -661,8 +779,24 @@ See `RequestConfig` for timeout and redirect details.")
   (defn request-stream-with-config [verb url headers body config]
     (request-stream- verb url headers body config))
 
-  (hidden drain-stream)
-  (private drain-stream)
+  (doc drain-stream "reads a `ResponseStream` to completion and returns the
+fully decoded body.
+
+Returns the framing or transport error that ended the stream if there was one,
+so a `Success` means the body arrived whole. Does not close the stream; the
+caller still owns it.
+
+Useful when driving `request-stream` directly: inspect the status code and the
+headers first, then either drain the body or hand the stream on.
+
+```
+(match (Client.request-stream \"GET\" url headers \"\")
+  (Result.Success stream)
+    (let-do [body (Client.drain-stream &stream)]
+      (ResponseStream.close stream)
+      body)
+  (Result.Error e) (Result.Error e))
+```")
   (defn drain-stream [s]
     (let-do [sb (StringBuf.create)
              done false]
@@ -692,13 +826,13 @@ See `RequestConfig` for timeout and redirect details.")
 
   (doc request-with-max-redirects
     "sends an HTTP request, following up to `max-redirects` redirects.
-Returns `(Result Response String)`. Pass 0 to disable redirect following.")
+Returns `(Result Response ClientError)`. Pass 0 to disable redirect following.")
   (defn request-with-max-redirects [verb url headers body max-redirects]
     (collect-response
       (request-stream-with-max-redirects verb url headers body max-redirects)))
 
   (doc request
-    "sends an HTTP request to the given URL. Returns `(Result Response String)`.
+    "sends an HTTP request to the given URL. Returns `(Result Response ClientError)`.
 
 Follows up to `default-max-redirects` HTTP redirects automatically. For 301,
 302, and 303 responses a GET or HEAD keeps its method and any other method
@@ -710,7 +844,7 @@ See `request-with-max-redirects` to control the redirect limit.")
 
   (doc request-with-config
     "sends an HTTP request with the given `RequestConfig`.
-Returns `(Result Response String)`.
+Returns `(Result Response ClientError)`.
 
 ```
 (let [cfg (RequestConfig.init 5 10 10)]
@@ -721,10 +855,12 @@ See `RequestConfig` for timeout and redirect details.")
   (defn request-with-config [verb url headers body config]
     (collect-response (request-stream-with-config verb url headers body config)))
 
-  (doc get "performs an HTTP GET request. Returns `(Result Response String)`.")
+  (doc get
+    "performs an HTTP GET request. Returns `(Result Response ClientError)`.")
   (defn get [url] (request "GET" url (the (Map String (Array String)) {}) ""))
 
-  (doc head "performs an HTTP HEAD request. Returns `(Result Response String)`.
+  (doc head
+    "performs an HTTP HEAD request. Returns `(Result Response ClientError)`.
 The response body will be empty, but headers and status code are available.")
   (defn head [url] (request "HEAD" url (the (Map String (Array String)) {}) ""))
 
@@ -736,23 +872,23 @@ The response body will be empty, but headers and status code are available.")
       (request verb url hdrs body)))
 
   (doc post "performs an HTTP POST request with headers and body.
-Returns `(Result Response String)`.")
+Returns `(Result Response ClientError)`.")
   (defn post [url headers body] (body-request "POST" url headers body))
 
   (doc put "performs an HTTP PUT request with headers and body.
-Returns `(Result Response String)`.")
+Returns `(Result Response ClientError)`.")
   (defn put [url headers body] (body-request "PUT" url headers body))
 
   (doc del
-    "performs an HTTP DELETE request. Returns `(Result Response String)`.")
+    "performs an HTTP DELETE request. Returns `(Result Response ClientError)`.")
   (defn del [url] (request "DELETE" url (the (Map String (Array String)) {}) ""))
 
   (doc patch "performs an HTTP PATCH request with headers and body.
-Returns `(Result Response String)`.")
+Returns `(Result Response ClientError)`.")
   (defn patch [url headers body] (body-request "PATCH" url headers body))
 
   (doc get-with-config "performs an HTTP GET request with the given
-`RequestConfig`. Returns `(Result Response String)`.
+`RequestConfig`. Returns `(Result Response ClientError)`.
 See `RequestConfig` for timeout and redirect details.")
   (defn get-with-config [url config]
     (request-with-config "GET"
@@ -762,7 +898,7 @@ See `RequestConfig` for timeout and redirect details.")
                          config))
 
   (doc head-with-config "performs an HTTP HEAD request with the given
-`RequestConfig`. Returns `(Result Response String)`.
+`RequestConfig`. Returns `(Result Response ClientError)`.
 See `RequestConfig` for timeout and redirect details.")
   (defn head-with-config [url config]
     (request-with-config "HEAD"
@@ -779,19 +915,19 @@ See `RequestConfig` for timeout and redirect details.")
       (request-with-config verb url hdrs body config)))
 
   (doc post-with-config "performs an HTTP POST request with the given
-`RequestConfig`. Returns `(Result Response String)`.
+`RequestConfig`. Returns `(Result Response ClientError)`.
 See `RequestConfig` for timeout and redirect details.")
   (defn post-with-config [url headers body config]
     (body-request-with-config "POST" url headers body config))
 
   (doc put-with-config "performs an HTTP PUT request with the given
-`RequestConfig`. Returns `(Result Response String)`.
+`RequestConfig`. Returns `(Result Response ClientError)`.
 See `RequestConfig` for timeout and redirect details.")
   (defn put-with-config [url headers body config]
     (body-request-with-config "PUT" url headers body config))
 
   (doc del-with-config "performs an HTTP DELETE request with the given
-`RequestConfig`. Returns `(Result Response String)`.
+`RequestConfig`. Returns `(Result Response ClientError)`.
 See `RequestConfig` for timeout and redirect details.")
   (defn del-with-config [url config]
     (request-with-config "DELETE"
@@ -802,7 +938,7 @@ See `RequestConfig` for timeout and redirect details.")
 
   (doc patch-with-config
     "performs an HTTP PATCH request with the given `RequestConfig`.
-Returns `(Result Response String)`.
+Returns `(Result Response ClientError)`.
 See `RequestConfig` for timeout and redirect details.")
   (defn patch-with-config [url headers body config]
     (body-request-with-config "PATCH" url headers body config))
@@ -810,7 +946,7 @@ See `RequestConfig` for timeout and redirect details.")
   (doc post-multipart "performs an HTTP POST request with a multipart/form-data
 body. Generates a boundary, encodes the parts, and sets the Content-Type
 header automatically. Any Content-Type header in `headers` is overwritten.
-Returns `(Result Response String)`.
+Returns `(Result Response ClientError)`.
 
 ```
 (Client.post-multipart \"https://example.com/upload\"
@@ -832,7 +968,7 @@ Returns `(Result Response String)`.
 
   (doc post-multipart-with-config "performs an HTTP POST request with a
 multipart/form-data body using the given `RequestConfig`.
-Returns `(Result Response String)`.
+Returns `(Result Response ClientError)`.
 See `RequestConfig` for timeout and redirect details.")
   (defn post-multipart-with-config [url headers parts config]
     (let [boundary (Multipart.boundary-for parts)
@@ -854,7 +990,8 @@ See `RequestConfig` for timeout and redirect details.")
              cur-headers headers
              max-redir @(RequestConfig.max-redirects config)
              remaining max-redir
-             result (the (Result ResponseStream String) (Result.Error @""))]
+             result (the (Result ResponseStream ClientError)
+                         (Result.Error (ClientError.Redirect @"")))]
       (while-do true
         (let [with-cookies (CookieJar.apply-to-headers jar &cur-url &cur-headers)]
           (match (build-and-send &cur-verb
@@ -881,7 +1018,8 @@ See `RequestConfig` for timeout and redirect details.")
                             (do
                               (Connection.close conn)
                               (set! result
-                                    (Result.Error @"redirect without Location header"))
+                                    (Result.Error
+                                      (ClientError.Redirect @"redirect without Location header")))
                               (break))
                           (Maybe.Just location)
                             (let [trimmed (Pattern.trim &location)]
@@ -889,7 +1027,8 @@ See `RequestConfig` for timeout and redirect details.")
                                 (do
                                   (Connection.close conn)
                                   (set! result
-                                        (Result.Error @"redirect with empty Location header"))
+                                        (Result.Error
+                                          (ClientError.Redirect @"redirect with empty Location header")))
                                   (break))
                                 (let-do [new-url (resolve-location &cur-url
                                                                    &trimmed)]
@@ -910,7 +1049,8 @@ See `RequestConfig` for timeout and redirect details.")
                           (Connection.close conn)
                           (set! result
                                 (Result.Error
-                                  (fmt "too many redirects (max %d)" max-redir)))
+                                  (ClientError.Redirect
+                                    (fmt "too many redirects (max %d)" max-redir))))
                           (break)))
                       (let-do [leftover @(Pair.b &pair)
                                is-chunked (and (Response.chunked? &resp)
@@ -945,24 +1085,24 @@ given `CookieJar` and `RequestConfig`. Returns a `ResponseStream`.")
 
   (doc request-with-jar "sends an HTTP request using the given `CookieJar`.
 Matching cookies are sent automatically, and Set-Cookie response headers
-are stored in the jar. Returns `(Result Response String)`.
+are stored in the jar. Returns `(Result Response ClientError)`.
 Follows up to `default-max-redirects` redirects.")
   (defn request-with-jar [verb url headers body jar]
     (collect-response (request-stream-with-jar verb url headers body jar)))
 
   (doc request-with-jar-and-config "sends an HTTP request using the given
-`CookieJar` and `RequestConfig`. Returns `(Result Response String)`.")
+`CookieJar` and `RequestConfig`. Returns `(Result Response ClientError)`.")
   (defn request-with-jar-and-config [verb url headers body jar config]
     (collect-response
       (request-stream-with-jar-and-config verb url headers body jar config)))
 
   (doc get-with-jar "performs an HTTP GET request using the given `CookieJar`.
-Returns `(Result Response String)`.")
+Returns `(Result Response ClientError)`.")
   (defn get-with-jar [url jar]
     (request-with-jar "GET" url (the (Map String (Array String)) {}) "" jar))
 
   (doc head-with-jar "performs an HTTP HEAD request using the given `CookieJar`.
-Returns `(Result Response String)`.")
+Returns `(Result Response ClientError)`.")
   (defn head-with-jar [url jar]
     (request-with-jar "HEAD" url (the (Map String (Array String)) {}) "" jar))
 
@@ -974,23 +1114,23 @@ Returns `(Result Response String)`.")
       (request-with-jar verb url hdrs body jar)))
 
   (doc post-with-jar "performs an HTTP POST request using the given `CookieJar`.
-Returns `(Result Response String)`.")
+Returns `(Result Response ClientError)`.")
   (defn post-with-jar [url headers body jar]
     (body-request-with-jar "POST" url headers body jar))
 
   (doc put-with-jar "performs an HTTP PUT request using the given `CookieJar`.
-Returns `(Result Response String)`.")
+Returns `(Result Response ClientError)`.")
   (defn put-with-jar [url headers body jar]
     (body-request-with-jar "PUT" url headers body jar))
 
   (doc del-with-jar
     "performs an HTTP DELETE request using the given `CookieJar`.
-Returns `(Result Response String)`.")
+Returns `(Result Response ClientError)`.")
   (defn del-with-jar [url jar]
     (request-with-jar "DELETE" url (the (Map String (Array String)) {}) "" jar))
 
   (doc patch-with-jar
     "performs an HTTP PATCH request using the given `CookieJar`.
-Returns `(Result Response String)`.")
+Returns `(Result Response ClientError)`.")
   (defn patch-with-jar [url headers body jar]
     (body-request-with-jar "PATCH" url headers body jar)))

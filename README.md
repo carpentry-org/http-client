@@ -10,7 +10,7 @@ Built on [socket](https://github.com/carpentry-org/socket),
 ## Installation
 
 ```clojure
-(load "git@github.com:carpentry-org/http-client@0.6.0")
+(load "git@github.com:carpentry-org/http-client@0.7.0")
 ```
 
 Requires OpenSSL for HTTPS support (via the `tls` library). Plain HTTP works
@@ -23,7 +23,7 @@ without OpenSSL.
 ```clojure
 (match (Client.get "https://example.com/")
   (Result.Success r) (println* (Response.body &r))
-  (Result.Error e) (IO.errorln &e))
+  (Result.Error e) (IO.errorln &(ClientError.str &e)))
 ```
 
 ### POST with headers
@@ -33,7 +33,7 @@ without OpenSSL.
          {@"Content-Type" [@"application/json"]}
          "{\"key\": 1}")
   (Result.Success r) (println* (Response.body &r))
-  (Result.Error e) (IO.errorln &e))
+  (Result.Error e) (IO.errorln &(ClientError.str &e)))
 ```
 
 ### Custom verb
@@ -53,7 +53,7 @@ redirect limit:
 (let [cfg (RequestConfig.init 5 10 10)]  ; 5s connect, 10s read, 10 redirects
   (match (Client.get-with-config "https://example.com/" &cfg)
     (Result.Success r) (println* (Response.body &r))
-    (Result.Error e) (IO.errorln &e)))
+    (Result.Error e) (IO.errorln &(ClientError.str &e))))
 ```
 
 All `-with-config` variants accept a `&RequestConfig` as the last argument.
@@ -77,7 +77,7 @@ For chunked or long-running responses, use `Client.request-stream` to get a
       (when (Maybe.just? (ResponseStream.error &stream))
         (IO.errorln "the response body was truncated"))
       (ResponseStream.close stream))
-  (Result.Error e) (IO.errorln &e))
+  (Result.Error e) (IO.errorln &(ClientError.str &e)))
 ```
 
 `ResponseStream` handles `Transfer-Encoding: chunked` automatically and
@@ -102,11 +102,11 @@ subsequent requests automatically:
 (let-do [jar (CookieJar.create)]
   (match (Client.get-with-jar "https://example.com/login" &jar)
     (Result.Success r) (println* (Response.body &r))
-    (Result.Error e) (IO.errorln &e))
+    (Result.Error e) (IO.errorln &(ClientError.str &e)))
   ; jar now has cookies from the login response
   (match (Client.get-with-jar "https://example.com/dashboard" &jar)
     (Result.Success r) (println* (Response.body &r))
-    (Result.Error e) (IO.errorln &e)))
+    (Result.Error e) (IO.errorln &(ClientError.str &e))))
 ```
 
 The jar follows RFC 6265 §5.3 and §5.4. A cookie that arrives with no
@@ -128,7 +128,7 @@ each new URL.
                                                      "text/plain"
                                                      "file contents")])
   (Result.Success r) (println* (Response.code &r))
-  (Result.Error e) (IO.errorln &e))
+  (Result.Error e) (IO.errorln &(ClientError.str &e)))
 ```
 
 `post-multipart` picks the boundary with `Multipart.boundary-for`, which
@@ -188,7 +188,18 @@ those characters are emitted unchanged.
 | `Client.request-with-jar-and-config verb url headers body jar config` | Generic request with jar and config |
 | `Client.request-stream-with-jar-and-config verb url headers body jar config` | Streaming with jar and config |
 
-All return `(Result Response String)` (or `(Result ResponseStream String)` for the streaming variants).
+All return `(Result Response ClientError)` (or `(Result ResponseStream ClientError)` for the streaming variants).
+
+`ClientError` says what failed and at which stage: `Uri`, `Dns`, `Connect`, `Tls`, `Send`, `Receive`, `Parse` or `Redirect`. `ClientError.str` renders one for a human; `ClientError.retryable?` says whether another attempt could succeed, and `ClientError.delivered?` says whether the server already received the request, so a retry would repeat work it has already done.
+
+```
+(match (Client.post url headers body)
+  (Result.Success r) (println* (Response.body &r))
+  (Result.Error e)
+    (if (and (ClientError.retryable? &e) (not (ClientError.delivered? &e)))
+      (retry)
+      (IO.errorln &(ClientError.str &e))))
+```
 
 All methods follow HTTP redirects automatically (up to `Client.default-max-redirects`,
 which is 10). For 301/302/303 responses a GET or HEAD keeps its method; any other
