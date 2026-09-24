@@ -1,7 +1,7 @@
 (load "git@github.com:carpentry-org/socket@0.2.5")
-(load "git@github.com:carpentry-org/http@0.5.0")
+(load "git@github.com:carpentry-org/http@0.6.0")
 (load "git@github.com:carpentry-org/tls@0.2.1")
-(load "git@github.com:carpentry-org/strbuf@0.2.1")
+(load "git@github.com:carpentry-org/strbuf@0.3.0")
 
 ; Byte-indexed prefix/suffix tests; the core ones measure in bytes but slice
 ; in characters.
@@ -520,8 +520,7 @@ that cares about a truncated body must check `error` afterwards.")
                   (when (String.contains-string? &acc "\r\n\r\n")
                     (set! found true)))))
           (Result.Error _) (set! found true)))
-      (let-do [acc (StringBuf.to-string &sb)]
-        (StringBuf.delete sb)
+      (let [acc (StringBuf.into-string sb)]
         (let [split-pos (String.index-of-string &acc "\r\n\r\n")]
           (if (< split-pos 0)
             (Result.Error (ClientError.Receive @"incomplete HTTP headers"))
@@ -804,8 +803,7 @@ headers first, then either drain the body or hand the stream on.
         (match (ResponseStream.poll s)
           (Maybe.Nothing) (set! done true)
           (Maybe.Just chunk) (StringBuf.append-str &sb &chunk)))
-      (let-do [body (StringBuf.to-string &sb)]
-        (StringBuf.delete sb)
+      (let [body (StringBuf.into-string sb)]
         (match @(ResponseStream.error s)
           (Maybe.Just e) (Result.Error e)
           (Maybe.Nothing) (Result.Success body)))))
