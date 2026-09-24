@@ -198,9 +198,7 @@ if no cookies match. Cookies are serialized longest path first.")
               (when (> i 0) (StringBuf.append-str &sb "; "))
               (StringBuf.append-str &sb
                                     &(Cookie.kv (Array.unsafe-nth &matched i)))))
-          (let-do [s (StringBuf.to-string &sb)]
-            (StringBuf.delete sb)
-            (Maybe.Just s))))))
+          (Maybe.Just (StringBuf.into-string sb))))))
 
   (doc apply-to-headers "adds a Cookie header for matching cookies to the
 headers map. Returns headers unchanged if no cookies match.")
