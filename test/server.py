@@ -209,6 +209,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._chunked_raw(b"5\r\nhello\r\n")
         if path == "/chunked-missing-crlf":
             return self._chunked_raw(b"5\r\nhelloXX0\r\n\r\n")
+        if path == "/chunked-leading-space":
+            return self._chunked_raw(b" 5\r\nhello\r\n0\r\n\r\n")
+        if path == "/chunked-trailing-space":
+            return self._chunked_raw(b"5 \r\nhello\r\n0\r\n\r\n")
+        if path == "/chunked-leading-tab":
+            return self._chunked_raw(b"\t5\r\nhello\r\n0\r\n\r\n")
+        if path == "/chunked-padded-zero":
+            return self._chunked_raw(b"5\r\nhello\r\n 0 \r\n\r\n")
 
         # a chunk size above 16 MiB, whose data is never sent, so the size
         # line alone decides the outcome
@@ -218,6 +226,10 @@ class Handler(BaseHTTPRequestHandler):
         # a well-formed body with a chunk extension and a trailer section
         if path == "/chunked-ext":
             return self._chunked_raw(b"5;name=value\r\nhello\r\n0\r\n\r\n")
+        if path == "/chunked-ext-space":
+            return self._chunked_raw(b"5 ;name\r\nhello\r\n0\r\n\r\n")
+        if path == "/chunked-ext-tab":
+            return self._chunked_raw(b"5\t;name\r\nhello\r\n0\r\n\r\n")
         if path == "/chunked-trailer":
             return self._chunked_raw(
                 b"5\r\nhello\r\n0\r\nX-Checksum: abc\r\nX-More: 1\r\n\r\n"
