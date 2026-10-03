@@ -93,6 +93,12 @@ chunked body, or a `Content-Length` body that ends short, comes back as
 only by the connection closing declares no length to check against, so it is
 taken as complete however the connection ends.
 
+A `Content-Length` body ends at its last byte: the stream does not wait for the
+connection to close, and drops anything the server sends after it. A
+`Content-Length` that is not a plain number, disagrees with another one, or is
+too large for an `Int` fails the request with `ClientError.Parse`. Any
+`Transfer-Encoding` overrides `Content-Length`.
+
 ### Cookie jar
 
 Use a `CookieJar` to store cookies from responses and replay them on

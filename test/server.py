@@ -62,6 +62,17 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
+    def _framed(self, fields, body, hold=0):
+        """A 200 with raw framing fields and body, kept open for `hold` seconds."""
+        self.wfile.write(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n"
+            + fields
+            + b"Connection: close\r\n\r\n"
+        )
+        if self.command != "HEAD":
+            self.wfile.write(body)
+        time.sleep(hold)
+
     def _length_body(self, declared, sent):
         return (
             b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: "
@@ -238,6 +249,57 @@ class Handler(BaseHTTPRequestHandler):
             return self._chunked_raw(
                 b"5\r\nhello\r\n0\r\nX-Checksum: abc\r\nX-More: 1\r\n\r\n"
             )
+
+        # Content-Length framing, each written as raw bytes
+        if path == "/length-extra":
+            return self._framed(b"Content-Length: 5\r\n", b"helloEXTRA")
+        if path == "/length-extra-late":
+            self._framed(b"Content-Length: 5\r\n", b"hel", hold=0.2)
+            self.wfile.write(b"loEXTRA")
+            return
+        if path == "/length-held":
+            return self._framed(b"Content-Length: 5\r\n", b"hello", hold=10)
+        if path == "/length-zero-held":
+            return self._framed(b"Content-Length: 0\r\n", b"", hold=10)
+        if path == "/length-negative":
+            return self._framed(b"Content-Length: -5\r\n", b"hello")
+        if path == "/length-empty":
+            return self._framed(b"Content-Length: \r\n", b"hello")
+        if path == "/length-junk":
+            return self._framed(b"Content-Length: 5x\r\n", b"hel")
+        if path == "/length-plus":
+            return self._framed(b"Content-Length: +5\r\n", b"hel")
+        if path == "/length-list":
+            return self._framed(b"Content-Length: 5, 5\r\n", b"helloEXTRA")
+        if path == "/length-list-conflict":
+            return self._framed(b"Content-Length: 5, 6\r\n", b"hello")
+        if path == "/length-lines":
+            return self._framed(
+                b"Content-Length: 5\r\ncontent-length: 5\r\n", b"helloEXTRA"
+            )
+        if path == "/length-lines-conflict":
+            return self._framed(b"Content-Length: 3\r\nContent-Length: 5\r\n", b"hello")
+        if path == "/length-max":
+            return self._framed(b"Content-Length: 2147483647\r\n", b"hello")
+        if path == "/length-over-max":
+            return self._framed(b"Content-Length: 2147483648\r\n", b"hello")
+        if path == "/length-wraps":
+            return self._framed(b"Content-Length: 4294967301\r\n", b"hello")
+        if path == "/chunked-bad-length":
+            return self._framed(
+                b"Transfer-Encoding: chunked\r\nContent-Length: abc\r\n",
+                b"5\r\nhello\r\n0\r\n\r\n",
+            )
+        if path == "/coded-length":
+            return self._framed(
+                b"Transfer-Encoding: xchunked\r\nContent-Length: 5\r\n", b"helloEXTRA"
+            )
+        if path == "/no-content-bad-length":
+            self.wfile.write(
+                b"HTTP/1.1 204 No Content\r\nContent-Length: abc\r\n"
+                b"Connection: close\r\n\r\n"
+            )
+            return
 
         # /not-chunked: `chunked` as a substring of another coding token, with a
         # plain Content-Length body.
