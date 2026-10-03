@@ -220,6 +220,25 @@
          true
          &(String.chars b))))
 
+(defn link-header [res]
+  (match res
+    (Result.Error e) (ClientError.message &e)
+    (Result.Success r) (Maybe.from (Response.header &r "Link") @"none")))
+
+(defn cookie-names [res]
+  (match res
+    (Result.Error e) (ClientError.message &e)
+    (Result.Success r)
+      (String.join ","
+                   &(Array.copy-map &(fn [c] @(Cookie.name c))
+                                    (Response.cookies &r)))))
+
+; The status and body of a cookie-jar request, then what the jar sends back.
+(defn jar-status-and-cookies [url]
+  (let-do [jar (CookieJar.create)
+           res (status-and-body (Client.get-with-jar url &jar))]
+    (fmt "%s %s" &res &(Maybe.from (CookieJar.cookie-header &jar url) @"none"))))
+
 (deftest test
   (assert-true test
     (Result.success? &(Client.get "http://127.0.0.1:8791/"))
@@ -724,6 +743,98 @@
     &@"HELLO-BODY"
     &(get-body "http://127.0.0.1:8791/header-continuation")
     "a header value that is not valid UTF-8 leaves the body intact")
+
+  (assert-equal test
+    "200 [final-body]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/interim-continue"))
+    "a 100 Continue is skipped for the response after it")
+
+  (assert-equal test
+    "200 [hello world]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/interim-hints"))
+    "a 103 Early Hints is skipped ahead of a chunked response")
+
+  (assert-equal test
+    "none"
+    &(link-header (Client.get "http://127.0.0.1:8791/interim-hints"))
+    "the headers of a skipped interim response do not reach the final one")
+
+  (assert-equal test
+    "200 [final-body]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/interim-many"))
+    "several interim responses in a row are all skipped")
+
+  (assert-equal test
+    "200 [final-body]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/interim-split"))
+    "a final response that arrives in a later read than the interim one is read")
+
+  (assert-equal test
+    "200 [final-body]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/interim-partial"))
+    "a final head that starts in the interim response's read is read whole")
+
+  ; /interim-held keeps the connection open for 10 s after the response
+  (assert-equal test
+    "200 [hello world]"
+    &(let-do [t0 (System.time)
+              res (status-and-body
+                (Client.get "http://127.0.0.1:8791/interim-held"))]
+      (if (< (- (System.time) t0) 5) res @"waited for the close"))
+    "a final head read along with the interim one is not waited for")
+
+  (assert-equal test
+    "200 [ok]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/interim-redirect"))
+    "a redirect after an interim response is followed")
+
+  (assert-equal test
+    "200 []"
+    &(head-status-and-body "http://127.0.0.1:8791/interim-continue")
+    "a HEAD skips an interim response too")
+
+  (assert-equal test
+    "200 [final-body]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/interim-flood/5"))
+    "five interim responses are skipped")
+
+  (assert-equal test
+    "too many 1xx informational responses (max 5)"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/interim-flood/6"))
+    "a sixth interim response is an error")
+
+  (assert-equal test
+    "parse"
+    &(error-kind (Client.get "http://127.0.0.1:8791/interim-flood/6"))
+    "too many interim responses is a Parse error")
+
+  (assert-equal test
+    "incomplete HTTP headers"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/interim-close"))
+    "a close right after an interim response is an error")
+
+  (assert-equal test
+    "101 []"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/switching"))
+    "a 101 Switching Protocols is a final response")
+
+  (assert-equal test
+    "200 [payload]"
+    &(status-and-body
+      (Client.post "http://127.0.0.1:8791/post"
+                   {@"Expect" [@"100-continue"]}
+                   "payload"))
+    "a request that expects 100-continue gets the final response")
+
+  (assert-equal test
+    "final"
+    &(cookie-names (Client.get "http://127.0.0.1:8791/interim-cookie"))
+    "a Set-Cookie on an interim response is not part of the final one")
+
+  (assert-equal test
+    "200 [ok] final=kept"
+    &(jar-status-and-cookies "http://127.0.0.1:8791/interim-cookie")
+    "a Set-Cookie on an interim response is not stored in the jar")
 
   (assert-equal test
     "malformed chunked body: invalid chunk size 'zz'"
