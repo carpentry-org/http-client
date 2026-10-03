@@ -233,6 +233,28 @@ apart.
             (set! acc (+ (* acc 16) d)))))
       (if ok (Maybe.Just acc) (Maybe.Nothing))))
 
+  (hidden bws?)
+  (private bws?)
+  (defn bws? [c] (or (= c \space) (= c \tab)))
+
+  (hidden parse-size-line)
+  (private parse-size-line)
+  ; chunk-size = 1*HEXDIG, then chunk-ext = *( BWS ";" ... ) per RFC 9112 §7.1
+  ; trailing BWS without a chunk-ext is accepted too
+  (defn parse-size-line [line]
+    (let-do [len (String.length line)
+             digits 0
+             i 0]
+      (while (and (< digits len)
+                  (>= (hex-nibble (String.char-at line digits)) 0))
+        (set! digits (Int.inc digits)))
+      (set! i digits)
+      (while (and (< i len) (bws? (String.char-at line i))) (set! i (Int.inc i)))
+      (if (and (> digits 0)
+               (or (= i len) (and (< i len) (= \; (String.char-at line i)))))
+        (parse-hex &(String.byte-slice line 0 digits))
+        (Maybe.Nothing))))
+
   (hidden crlf-at?)
   (private crlf-at?)
   (defn crlf-at? [s i]
@@ -340,17 +362,14 @@ apart.
                                @"malformed chunked body: unterminated chunk size line"
                                @"malformed chunked body: missing terminating zero-size chunk")))
               (set! running false))
-            (let [line &(String.byte-slice (buf s) p eol)
-                  semi (String.index-of line \;)
-                  hex &(String.trim
-                    &(if (= semi -1) @line (String.byte-slice line 0 semi)))]
-              (match (parse-hex hex)
+            (let [line &(String.byte-slice (buf s) p eol)]
+              (match (parse-size-line line)
                 (Maybe.Nothing)
                   (do
                     (fail-parse! s
                                  (fmt
                                    "malformed chunked body: invalid chunk size '%s'"
-                                   hex))
+                                   line))
                     (set! running false))
                 (Maybe.Just size)
                   (if (= size 0)
