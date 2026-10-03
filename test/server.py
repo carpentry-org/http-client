@@ -215,8 +215,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._chunked_raw(b"5 \r\nhello\r\n0\r\n\r\n")
         if path == "/chunked-leading-tab":
             return self._chunked_raw(b"\t5\r\nhello\r\n0\r\n\r\n")
+        if path == "/chunked-stray-cr":
+            return self._chunked_raw(b"5\r\r\nhello\r\n0\r\n\r\n")
         if path == "/chunked-padded-zero":
             return self._chunked_raw(b"5\r\nhello\r\n 0 \r\n\r\n")
+        if path == "/chunked-zero-trailing-space":
+            return self._chunked_raw(b"5\r\nhello\r\n0 \r\n\r\n")
 
         # a chunk size above 16 MiB, whose data is never sent, so the size
         # line alone decides the outcome

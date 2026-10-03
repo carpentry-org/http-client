@@ -240,6 +240,7 @@ apart.
   (hidden parse-size-line)
   (private parse-size-line)
   ; chunk-size = 1*HEXDIG, then chunk-ext = *( BWS ";" ... ) per RFC 9112 §7.1
+  ; trailing BWS without a chunk-ext is accepted too
   (defn parse-size-line [line]
     (let-do [len (String.length line)
              digits 0
@@ -250,7 +251,7 @@ apart.
       (set! i digits)
       (while (and (< i len) (bws? (String.char-at line i))) (set! i (Int.inc i)))
       (if (and (> digits 0)
-               (or (= digits len) (and (< i len) (= \; (String.char-at line i)))))
+               (or (= i len) (and (< i len) (= \; (String.char-at line i)))))
         (parse-hex &(String.byte-slice line 0 digits))
         (Maybe.Nothing))))
 

@@ -741,10 +741,10 @@
     "a space before the chunk size is rejected")
 
   (assert-equal test
-    "malformed chunked body: invalid chunk size '5 '"
+    "200 [hello]"
     &(status-and-body
       (Client.get "http://127.0.0.1:8791/chunked-trailing-space"))
-    "a space after the chunk size is rejected when no extension follows")
+    "a space after the chunk size is allowed")
 
   (assert-equal test
     "malformed chunked body: invalid chunk size '\t5'"
@@ -752,9 +752,20 @@
     "a tab before the chunk size is rejected")
 
   (assert-equal test
+    "malformed chunked body: invalid chunk size '5\r'"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/chunked-stray-cr"))
+    "a stray CR after the chunk size is rejected")
+
+  (assert-equal test
     "malformed chunked body: invalid chunk size ' 0 '"
     &(status-and-body (Client.get "http://127.0.0.1:8791/chunked-padded-zero"))
-    "a space-padded zero-size chunk does not end the body")
+    "a zero-size chunk with a leading space does not end the body")
+
+  (assert-equal test
+    "200 [hello]"
+    &(status-and-body
+      (Client.get "http://127.0.0.1:8791/chunked-zero-trailing-space"))
+    "a zero-size chunk with a trailing space ends the body")
 
   (assert-equal test
     "malformed chunked body: truncated chunk data"
