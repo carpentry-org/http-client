@@ -309,12 +309,16 @@ apart.
             (do (when (= eol p) (set! scanning false)) (set! p (+ eol 2))))))
       (set-pos! s p)))
 
-  (hidden charge!)
-  (private charge!)
-  (defn charge! [s n]
-    (match-ref (remaining s)
-      (Maybe.Nothing) ()
-      (Maybe.Just left) (set-remaining! s (Maybe.Just (- @left n)))))
+  (hidden take!)
+  (private take!)
+  ; drops whatever lies past the declared length
+  (defn take! [s chunk]
+    (match @(remaining s)
+      (Maybe.Nothing) chunk
+      (Maybe.Just left)
+        (let-do [n (min left (String.length &chunk))]
+          (set-remaining! s (Maybe.Just (- left n)))
+          (String.byte-slice &chunk 0 n))))
 
   (hidden truncated?)
   (private truncated?)
@@ -332,17 +336,18 @@ apart.
   (hidden poll-raw)
   (private poll-raw)
   (defn poll-raw [s]
-    (if (> (String.length (buf s)) @(pos s))
-      (let-do [leftover (unconsumed s)]
-        (set-pos! s (String.length (buf s)))
-        (charge! s (String.length &leftover))
-        (Maybe.Just leftover))
+    (cond
+      (= (remaining s) &(Maybe.Just 0)) (do (set-done! s true) (Maybe.Nothing))
+      (> (String.length (buf s)) @(pos s))
+        (let-do [leftover (unconsumed s)]
+          (set-pos! s (String.length (buf s)))
+          (Maybe.Just (take! s leftover)))
       (match (Connection.read (conn s))
         (Result.Success chunk)
           (if (String.empty? &chunk)
             (end-raw! s
                       @"truncated body: the connection closed before Content-Length bytes arrived")
-            (do (charge! s (String.length &chunk)) (Maybe.Just chunk)))
+            (Maybe.Just (take! s chunk)))
         (Result.Error e) (end-raw! s (fmt "read error: %s" &e)))))
 
   (hidden poll-chunked)
@@ -569,15 +574,94 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
   (defn bodyless? [verb code]
     (or (= verb "HEAD") (or (< code 200) (or (= code 204) (= code 304)))))
 
+  (hidden parse-length)
+  (private parse-length)
+  ; RFC 9110 §8.6: 1*DIGIT, which must also fit an Int
+  (defn parse-length [s]
+    (let-do [len (String.length s)
+             acc 0
+             digits (> len 0)
+             fits true]
+      (for [i 0 len]
+        (let [c (String.char-at s i)
+              d (- (Char.to-int c) 48)]
+          (cond
+            (not (Char.num? c)) (do (set! digits false) (break))
+            (> acc (/ (- Int.MAX d) 10)) (set! fits false)
+            (set! acc (+ (* acc 10) d)))))
+      (cond
+        (not digits)
+          (Result.Error
+            (ClientError.Parse (fmt "invalid Content-Length '%s'" s)))
+        (not fits)
+          (Result.Error
+            (ClientError.Parse (fmt "Content-Length too large: %s" s)))
+        (Result.Success acc))))
+
+  (hidden agree-length)
+  (private agree-length)
+  ; RFC 9112 §6.3: repeated lengths must all be the same value
+  (defn agree-length [agreed member]
+    (match agreed
+      (Result.Error e) (Result.Error e)
+      (Result.Success prev)
+        (match (parse-length &(String.trim member))
+          (Result.Error e) (Result.Error e)
+          (Result.Success n)
+            (match prev
+              (Maybe.Nothing) (Result.Success (Maybe.Just n))
+              (Maybe.Just p)
+                (if (= p n)
+                  (Result.Success (Maybe.Just n))
+                  (Result.Error
+                    (ClientError.Parse
+                      (fmt "conflicting Content-Length values %d and %d" p n))))))))
+
+  (hidden content-lengths)
+  (private content-lengths)
+  ; the members of every Content-Length field line, with comma lists split
+  (defn content-lengths [resp]
+    (Map.kv-reduce
+      &(fn [acc k vs]
+        (if (= &(String.ascii-to-lower k) "content-length")
+          (Array.reduce
+            &(fn [a v] (Array.concat &[a (String.split-by v &[\,])]))
+            acc
+            vs)
+          acc))
+      (the (Array String) [])
+      (Response.headers resp)))
+
   (hidden declared-length)
   (private declared-length)
   ; how many body bytes the response promises, or Nothing when it promises none
   (defn declared-length [resp verb code]
-    (if (bodyless? verb code)
-      (Maybe.Nothing)
-      (match (Response.header resp "Content-Length")
-        (Maybe.Nothing) (Maybe.Nothing)
-        (Maybe.Just v) (Int.from-string &v))))
+    (if (or (bodyless? verb code)
+            (Maybe.just? &(Response.header resp "Transfer-Encoding")))
+      (Result.Success (Maybe.Nothing))
+      (Array.reduce &agree-length
+                    (Result.Success (Maybe.Nothing))
+                    &(content-lengths resp))))
+
+  (hidden open-stream)
+  (private open-stream)
+  (defn open-stream [conn resp leftover verb]
+    (let [code @(Response.code &resp)]
+      (match (declared-length &resp verb code)
+        (Result.Error e) (do (Connection.close conn) (Result.Error e))
+        (Result.Success left)
+          (let [is-chunked (and (Response.chunked? &resp)
+                                (not (bodyless? verb code)))]
+            (Result.Success
+              (ResponseStream.init conn
+                                   leftover
+                                   0
+                                   (Maybe.Nothing)
+                                   is-chunked
+                                   false
+                                   left
+                                   code
+                                   resp))))))
 
   ; RFC 9110 §15.4.2–§15.4.4 method rewriting.
   (hidden redirect-verb)
@@ -720,21 +804,9 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
                                 (ClientError.Redirect
                                   (fmt "too many redirects (max %d)" max-redir))))
                         (break)))
-                    (let-do [leftover @(Pair.b &pair)
-                             is-chunked (and (Response.chunked? &resp)
-                                             (not (bodyless? &cur-verb code)))
-                             left (declared-length &resp &cur-verb code)]
+                    (do
                       (set! result
-                            (Result.Success
-                              (ResponseStream.init conn
-                                                   leftover
-                                                   0
-                                                   (Maybe.Nothing)
-                                                   is-chunked
-                                                   false
-                                                   left
-                                                   code
-                                                   resp)))
+                            (open-stream conn resp @(Pair.b &pair) &cur-verb))
                       (break)))))))
       result))
 
@@ -1049,21 +1121,9 @@ See `RequestConfig` for timeout and redirect details.")
                                   (ClientError.Redirect
                                     (fmt "too many redirects (max %d)" max-redir))))
                           (break)))
-                      (let-do [leftover @(Pair.b &pair)
-                               is-chunked (and (Response.chunked? &resp)
-                                               (not (bodyless? &cur-verb code)))
-                               left (declared-length &resp &cur-verb code)]
+                      (do
                         (set! result
-                              (Result.Success
-                                (ResponseStream.init conn
-                                                     leftover
-                                                     0
-                                                     (Maybe.Nothing)
-                                                     is-chunked
-                                                     false
-                                                     left
-                                                     code
-                                                     resp)))
+                              (open-stream conn resp @(Pair.b &pair) &cur-verb))
                         (break))))))))
       result))
 
