@@ -87,6 +87,13 @@ class Handler(BaseHTTPRequestHandler):
     def _headers_dump(self):
         return "".join(f"{k}: {v}\n" for k, v in self.headers.items())
 
+    def _sends(self, *parts):
+        """Writes each part in its own send, pausing between them."""
+        for i, part in enumerate(parts):
+            if i:
+                time.sleep(0.2)
+            self.wfile.write(part)
+
     # -- routing ------------------------------------------------------------
     def _route(self):
         parsed = urlparse(self.path)
@@ -277,6 +284,55 @@ class Handler(BaseHTTPRequestHandler):
             return self._raw(b"Server: caf\xc3\xa9", b"HELLO-BODY")
         if path == "/header-continuation":
             return self._raw(b"X-Weird: \x80\x80\x80\x80\x80", b"HELLO-BODY")
+
+        # 1xx interim responses ahead of the final one, written as raw bytes
+        cont = b"HTTP/1.1 100 Continue\r\n\r\n"
+        hints = (
+            b"HTTP/1.1 103 Early Hints\r\n"
+            b"Link: </style.css>; rel=preload; as=style\r\n"
+            b"Link: </app.js>; rel=preload; as=script\r\n\r\n"
+        )
+        final = self._length_body(10, b"" if self.command == "HEAD" else b"final-body")
+        chunked = (
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n"
+            b"Connection: close\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n"
+        )
+        if path == "/interim-continue":
+            return self._sends(cont + final)
+        if path == "/interim-hints":
+            return self._sends(hints + chunked)
+        if path == "/interim-held":
+            self._sends(hints + chunked)
+            time.sleep(10)
+            return
+        if path == "/interim-many":
+            return self._sends(
+                cont + b"HTTP/1.1 102 Processing\r\n\r\n" + hints + final
+            )
+        if path == "/interim-split":
+            return self._sends(cont, final)
+        if path == "/interim-partial":
+            return self._sends(hints + final[:30], final[30:])
+        if path.startswith("/interim-flood/"):
+            return self._sends(cont * int(path.rsplit("/", 1)[1]) + final)
+        if path == "/interim-redirect":
+            return self._sends(
+                cont + b"HTTP/1.1 302 Found\r\nLocation: /get\r\n"
+                b"Content-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+        if path == "/interim-cookie":
+            return self._sends(
+                b"HTTP/1.1 103 Early Hints\r\nSet-Cookie: interim=leaked; Path=/\r\n\r\n"
+                b"HTTP/1.1 200 OK\r\nSet-Cookie: final=kept; Path=/\r\n"
+                b"Content-Length: 2\r\nConnection: close\r\n\r\nok"
+            )
+        if path == "/interim-close":
+            return self._sends(cont)
+        if path == "/switching":
+            return self._sends(
+                b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: example\r\n"
+                b"Connection: Upgrade\r\n\r\n"
+            )
 
         return self._send(404, "not found")
 
