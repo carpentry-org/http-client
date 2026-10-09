@@ -108,6 +108,31 @@
           (ResponseStream.close stream)
           kind))))
 
+; The body a stream yields poll by poll, then how it ended.
+(defn streamed [url]
+  (match (Client.request-stream "GET"
+                                url
+                                (the (Map String (Array String)) {})
+                                "")
+    (Result.Error e) (ClientError.message &e)
+    (Result.Success stream)
+      (let-do [body @""]
+        (while-do true
+          (match (ResponseStream.poll &stream)
+            (Maybe.Nothing) (break)
+            (Maybe.Just chunk) (set! body (String.append &body &chunk))))
+        (let-do [ended (match @(ResponseStream.error &stream)
+                   (Maybe.Just e) (ClientError.message &e)
+                   (Maybe.Nothing) @"clean")]
+          (ResponseStream.close stream)
+          (fmt "[%s] %s" &body &ended)))))
+
+; The held routes keep the connection open for 10 s after the body.
+(defn without-waiting [f]
+  (let-do [t0 (System.time)
+           res (~f)]
+    (if (< (- (System.time) t0) 5) res @"waited for the close")))
+
 ; Returns the empty string on request failure.
 (defn get-body [url]
   (match (Client.get url) (Result.Success r) @(Response.body &r) _ @""))
@@ -1064,6 +1089,126 @@
                               &(String.repeat 32768 "x")
                               &jar)))
     "the same holds on the cookie-jar path")
+
+  (assert-equal test
+    "200 [hello]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/length-extra"))
+    "bytes past Content-Length are not part of the body")
+
+  (assert-equal test
+    "200 [hello]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/length-extra-late"))
+    "bytes past Content-Length in a later read are not part of the body")
+
+  (assert-equal test
+    "[hello] clean"
+    &(streamed "http://127.0.0.1:8791/length-extra")
+    "a stream stops at Content-Length")
+
+  (assert-equal test
+    "200 [hello]"
+    &(without-waiting
+      &(fn [] (status-and-body (Client.get "http://127.0.0.1:8791/length-held"))))
+    "a complete Content-Length body does not wait for the close")
+
+  (assert-equal test
+    "[hello] clean"
+    &(without-waiting &(fn [] (streamed "http://127.0.0.1:8791/length-held")))
+    "a stream ends at the last Content-Length byte without waiting for the close")
+
+  (assert-equal test
+    "200 []"
+    &(without-waiting
+      &(fn []
+        (status-and-body (Client.get "http://127.0.0.1:8791/length-zero-held"))))
+    "a zero Content-Length does not wait for the close")
+
+  (assert-equal test
+    "invalid Content-Length '-5'"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/length-negative"))
+    "a negative Content-Length is rejected")
+
+  (assert-equal test
+    "invalid Content-Length ''"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/length-empty"))
+    "an empty Content-Length is rejected")
+
+  (assert-equal test
+    "invalid Content-Length '5x'"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/length-junk"))
+    "a Content-Length with trailing junk is rejected")
+
+  (assert-equal test
+    "invalid Content-Length '+5'"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/length-plus"))
+    "a signed Content-Length is rejected")
+
+  (assert-equal test
+    "parse"
+    &(error-kind (Client.get "http://127.0.0.1:8791/length-junk"))
+    "an invalid Content-Length is a Parse error")
+
+  (assert-equal test
+    "200 [hello]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/length-list"))
+    "a list of identical Content-Length values counts as one")
+
+  (assert-equal test
+    "200 [hello]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/length-lines"))
+    "repeated identical Content-Length lines count as one")
+
+  (assert-equal test
+    "conflicting Content-Length values 5 and 6"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/length-list-conflict"))
+    "a list of differing Content-Length values is rejected")
+
+  (assert-equal test
+    "conflicting Content-Length values 3 and 5"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/length-lines-conflict"))
+    "repeated differing Content-Length lines are rejected")
+
+  (assert-equal test
+    "conflicting Content-Length values 3 and 5"
+    &(let-do [jar (CookieJar.create)]
+      (status-and-body
+        (Client.get-with-jar "http://127.0.0.1:8791/length-lines-conflict" &jar)))
+    "the same holds on the cookie-jar path")
+
+  (assert-equal test
+    "truncated body: the connection closed before Content-Length bytes arrived"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/length-max"))
+    "the largest Content-Length an Int holds is still a length")
+
+  (assert-equal test
+    "Content-Length too large: 2147483648"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/length-over-max"))
+    "a Content-Length one past the largest Int is rejected")
+
+  (assert-equal test
+    "Content-Length too large: 4294967301"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/length-wraps"))
+    "a Content-Length that would wrap to a small Int is rejected")
+
+  (assert-equal test
+    "200 [hello]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/chunked-bad-length"))
+    "a chunked body ignores an invalid Content-Length")
+
+  (assert-equal test
+    "200 [helloEXTRA]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/coded-length"))
+    "any Transfer-Encoding overrides Content-Length")
+
+  (assert-equal test
+    "204 []"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/no-content-bad-length"))
+    "a 204 ignores an invalid Content-Length")
+
+  (assert-equal test
+    "200 []"
+    &(head-status-and-body "http://127.0.0.1:8791/length-negative")
+    "a HEAD response ignores an invalid Content-Length")
 
   (assert-equal test
     "127.0.0.1:8791"
