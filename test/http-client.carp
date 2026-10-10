@@ -1178,17 +1178,32 @@
   (assert-equal test
     "truncated body: the connection closed before Content-Length bytes arrived"
     &(status-and-body (Client.get "http://127.0.0.1:8791/length-max"))
-    "the largest Content-Length an Int holds is still a length")
+    "the largest Content-Length an Int holds is a length")
 
   (assert-equal test
-    "Content-Length too large: 2147483648"
+    "truncated body: the connection closed before Content-Length bytes arrived"
     &(status-and-body (Client.get "http://127.0.0.1:8791/length-over-max"))
-    "a Content-Length one past the largest Int is rejected")
+    "a Content-Length past the largest Int is a length")
 
   (assert-equal test
-    "Content-Length too large: 4294967301"
+    "truncated body: the connection closed before Content-Length bytes arrived"
     &(status-and-body (Client.get "http://127.0.0.1:8791/length-wraps"))
-    "a Content-Length that would wrap to a small Int is rejected")
+    "a Content-Length past 32 bits does not wrap")
+
+  (assert-equal test
+    "truncated body: the connection closed before Content-Length bytes arrived"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/length-long-max"))
+    "the largest Content-Length a Long holds is a length")
+
+  (assert-equal test
+    "Content-Length too large: 9223372036854775808"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/length-over-long-max"))
+    "a Content-Length one past the largest Long is rejected")
+
+  (assert-equal test
+    "Content-Length too large: 18446744073709551621"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/length-long-wraps"))
+    "a Content-Length that would wrap to a small Long is rejected")
 
   (assert-equal test
     "200 [hello]"

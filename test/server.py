@@ -292,6 +292,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._framed(b"Content-Length: 2147483648\r\n", b"hello")
         if path == "/length-wraps":
             return self._framed(b"Content-Length: 4294967301\r\n", b"hello")
+        if path == "/length-long-max":
+            return self._framed(b"Content-Length: 9223372036854775807\r\n", b"hello")
+        if path == "/length-over-long-max":
+            return self._framed(b"Content-Length: 9223372036854775808\r\n", b"hello")
+        if path == "/length-long-wraps":
+            return self._framed(
+                b"Content-Length: 18446744073709551621\r\n", b"hello"
+            )
         if path == "/chunked-bad-length":
             return self._framed(
                 b"Transfer-Encoding: chunked\r\nContent-Length: abc\r\n",

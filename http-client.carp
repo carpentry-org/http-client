@@ -199,7 +199,7 @@ apart.
    error (Maybe ClientError)
    chunked Bool
    done Bool
-   remaining (Maybe Int)
+   remaining (Maybe Long)
    status-code Int
    parsed-response Response])
 
@@ -316,15 +316,17 @@ apart.
     (match @(remaining s)
       (Maybe.Nothing) chunk
       (Maybe.Just left)
-        (let-do [n (min left (String.length &chunk))]
+        (let-do [n (min left (Long.from-int (String.length &chunk)))]
           (set-remaining! s (Maybe.Just (- left n)))
-          (String.byte-slice &chunk 0 n))))
+          (String.byte-slice &chunk 0 (Long.to-int n)))))
 
   (hidden truncated?)
   (private truncated?)
   ; a body with no declared length ends at EOF, so it can never be short
   (defn truncated? [s]
-    (match-ref (remaining s) (Maybe.Nothing) false (Maybe.Just left) (> @left 0)))
+    (match-ref (remaining s)
+      (Maybe.Nothing) false
+      (Maybe.Just left) (> @left 0l)))
 
   (hidden end-raw!)
   (private end-raw!)
@@ -337,7 +339,7 @@ apart.
   (private poll-raw)
   (defn poll-raw [s]
     (cond
-      (= (remaining s) &(Maybe.Just 0)) (do (set-done! s true) (Maybe.Nothing))
+      (= (remaining s) &(Maybe.Just 0l)) (do (set-done! s true) (Maybe.Nothing))
       (> (String.length (buf s)) @(pos s))
         (let-do [leftover (unconsumed s)]
           (set-pos! s (String.length (buf s)))
@@ -614,21 +616,26 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
   (defn bodyless? [verb code]
     (or (= verb "HEAD") (or (< code 200) (or (= code 204) (= code 304)))))
 
+  ; Long.MAX is LONG_MAX, which is 32 bits on some targets; Long is int64_t
+  (hidden max-length)
+  (private max-length)
+  (def max-length 9223372036854775807l)
+
   (hidden parse-length)
   (private parse-length)
-  ; RFC 9110 §8.6: 1*DIGIT, which must also fit an Int
+  ; RFC 9110 §8.6: 1*DIGIT, which must also fit a Long
   (defn parse-length [s]
     (let-do [len (String.length s)
-             acc 0
+             acc 0l
              digits (> len 0)
              fits true]
       (for [i 0 len]
         (let [c (String.char-at s i)
-              d (- (Char.to-int c) 48)]
+              d (Long.from-int (- (Char.to-int c) 48))]
           (cond
             (not (Char.num? c)) (do (set! digits false) (break))
-            (> acc (/ (- Int.MAX d) 10)) (set! fits false)
-            (set! acc (+ (* acc 10) d)))))
+            (> acc (/ (- max-length d) 10l)) (set! fits false)
+            (set! acc (+ (* acc 10l) d)))))
       (cond
         (not digits)
           (Result.Error
@@ -655,7 +662,10 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
                   (Result.Success (Maybe.Just n))
                   (Result.Error
                     (ClientError.Parse
-                      (fmt "conflicting Content-Length values %d and %d" p n))))))))
+                      (fmt
+                        "conflicting Content-Length values %s and %s"
+                        &(str p)
+                        &(str n)))))))))
 
   (hidden content-lengths)
   (private content-lengths)

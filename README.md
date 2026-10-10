@@ -96,8 +96,9 @@ taken as complete however the connection ends.
 A `Content-Length` body ends at its last byte: the stream does not wait for the
 connection to close, and drops anything the server sends after it. A
 `Content-Length` that is not a plain number, disagrees with another one, or is
-too large for an `Int` fails the request with `ClientError.Parse`. Any
-`Transfer-Encoding` overrides `Content-Length`.
+larger than 9223372036854775807 fails the request with `ClientError.Parse`.
+HEAD, 1xx, 204 and 304 responses carry no body, so their `Content-Length` is
+not checked. Any `Transfer-Encoding` overrides `Content-Length`.
 
 ### Cookie jar
 
