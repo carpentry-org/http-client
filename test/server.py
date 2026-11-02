@@ -227,6 +227,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._chunked_raw(b"5\r\nhello\r\n")
         if path == "/chunked-missing-crlf":
             return self._chunked_raw(b"5\r\nhelloXX0\r\n\r\n")
+        if path == "/chunked-cr-close":
+            return self._chunked_raw(b"5\r\nhello\r")
         if path == "/chunked-leading-space":
             return self._chunked_raw(b" 5\r\nhello\r\n0\r\n\r\n")
         if path == "/chunked-trailing-space":
@@ -244,6 +246,17 @@ class Handler(BaseHTTPRequestHandler):
         # line alone decides the outcome
         if path == "/chunked-oversize":
             return self._chunked_raw(b"1000001\r\nhello")
+
+        # one chunk whose second half arrives 10 s after the first
+        if path == "/chunked-held-half":
+            self._chunked_raw(b"b\r\nhello ")
+            time.sleep(10)
+            self.wfile.write(b"world\r\n0\r\n\r\n")
+            return
+        # one 1 MiB chunk of numbered lines
+        if path == "/chunked-large":
+            body = b"".join(b"%07d\n" % i for i in range(131072))
+            return self._chunked_raw(b"%x\r\n%s\r\n0\r\n\r\n" % (len(body), body))
 
         # a well-formed body with a chunk extension and a trailer section
         if path == "/chunked-ext":

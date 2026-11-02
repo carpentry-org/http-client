@@ -198,6 +198,7 @@ apart.
    pos Int
    error (Maybe ClientError)
    chunked Bool
+   chunk-left Int
    done Bool
    remaining (Maybe Long)
    status-code Int
@@ -295,6 +296,13 @@ apart.
             (set-pos! s 0)
             true))))
 
+  (hidden fill-or-fail!)
+  (private fill-or-fail!)
+  ; false once the body has ended, failing it with `why` unless a read failed
+  (defn fill-or-fail! [s why]
+    (or (fill! s)
+        (do (when (Maybe.nothing? (error s)) (fail-parse! s @why)) false)))
+
   (hidden skip-trailers!)
   (private skip-trailers!)
   ; consumes as much of the trailer section as is already buffered
@@ -354,57 +362,63 @@ apart.
 
   (hidden poll-chunked)
   (private poll-chunked)
+  ; chunk-left: -1 before a size line, 0 before a chunk's CRLF, else bytes owed
   (defn poll-chunked [s]
     (let-do [result (Maybe.Nothing)
              running true]
       (while running
         (let [len (String.length (buf s))
               p @(pos s)
-              eol (String.find-crlf (buf s) p len)]
-          (if (= eol -1)
-            (unless-do (fill! s)
-              (when (Maybe.nothing? (error s))
-                (fail-parse! s
-                             (if (< p len)
-                               @"malformed chunked body: unterminated chunk size line"
-                               @"malformed chunked body: missing terminating zero-size chunk")))
-              (set! running false))
-            (let [line &(String.byte-slice (buf s) p eol)]
-              (match (parse-size-line line)
-                (Maybe.Nothing)
-                  (do
-                    (fail-parse! s
-                                 (fmt
-                                   "malformed chunked body: invalid chunk size '%s'"
-                                   line))
-                    (set! running false))
-                (Maybe.Just size)
-                  (if (= size 0)
-                    (do
-                      (set-pos! s (+ eol 2))
-                      (skip-trailers! s)
-                      (set-done! s true)
-                      (set! running false))
-                    (let [start (+ eol 2)
-                          avail (- len start)]
-                      ; compared without adding, so a huge size cannot overflow
-                      (if (> size (- avail 2))
-                        (unless-do (fill! s)
-                          (when (Maybe.nothing? (error s))
-                            (fail-parse! s
-                                         @"malformed chunked body: truncated chunk data"))
-                          (set! running false))
-                        (let-do [end (+ start size)]
-                          (if (crlf-at? (buf s) end)
-                            (do
-                              (set! result
-                                    (Maybe.Just (String.byte-slice (buf s)
-                                                                   start
-                                                                   end)))
-                              (set-pos! s (+ end 2)))
-                            (fail-parse! s
-                                         @"malformed chunked body: chunk data missing CRLF"))
-                          (set! running false))))))))))
+              left @(chunk-left s)]
+          (cond
+            (> left 0)
+              (if (< p len)
+                (let-do [n (min left (- len p))]
+                  (set! result
+                        (Maybe.Just (String.byte-slice (buf s) p (+ p n))))
+                  (set-pos! s (+ p n))
+                  (set-chunk-left! s (- left n))
+                  (set! running false))
+                (set! running
+                      (fill-or-fail! s
+                                     "malformed chunked body: truncated chunk data")))
+            (= left 0)
+              (cond
+                (< (- len p) 2)
+                  (set! running
+                        (fill-or-fail! s
+                                       "malformed chunked body: truncated chunk data"))
+                (crlf-at? (buf s) p)
+                  (do (set-pos! s (+ p 2)) (set-chunk-left! s -1))
+                (do
+                  (fail-parse! s
+                               @"malformed chunked body: chunk data missing CRLF")
+                  (set! running false)))
+            (let [eol (String.find-crlf (buf s) p len)]
+              (if (= eol -1)
+                (set! running
+                      (fill-or-fail! s
+                                     (if (< p len)
+                                       "malformed chunked body: unterminated chunk size line"
+                                       "malformed chunked body: missing terminating zero-size chunk")))
+                (let [line &(String.byte-slice (buf s) p eol)]
+                  (match (parse-size-line line)
+                    (Maybe.Nothing)
+                      (do
+                        (fail-parse! s
+                                     (fmt
+                                       "malformed chunked body: invalid chunk size '%s'"
+                                       line))
+                        (set! running false))
+                    (Maybe.Just size)
+                      (do
+                        (set-pos! s (+ eol 2))
+                        (if (= size 0)
+                          (do
+                            (skip-trailers! s)
+                            (set-done! s true)
+                            (set! running false))
+                          (set-chunk-left! s size))))))))))
       result))
 
   (doc poll "returns the next chunk of decoded body data, or `Nothing` when the
@@ -708,6 +722,7 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
                                    0
                                    (Maybe.Nothing)
                                    is-chunked
+                                   -1
                                    false
                                    left
                                    code
