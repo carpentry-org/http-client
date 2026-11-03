@@ -576,16 +576,18 @@ that cares about a truncated body must check `error` afterwards.")
   (defn read-headers [conn]
     (let-do [pending @""
              skipped 0
+             running true
              result (the
                (Result (Pair Response String) ClientError)
                (Result.Error (ClientError.Receive @"")))]
-      (while-do true
+      (while running
         (match (read-head conn &pending)
-          (Result.Error e) (do (set! result (Result.Error e)) (break))
+          (Result.Error e)
+            (do (set! result (Result.Error e)) (set! running false))
           (Result.Success pair)
             (cond
               (not (interim? @(Response.code (Pair.a &pair))))
-                (do (set! result (Result.Success pair)) (break))
+                (do (set! result (Result.Success pair)) (set! running false))
               (= skipped max-interim)
                 (do
                   (set! result
@@ -594,7 +596,7 @@ that cares about a truncated body must check `error` afterwards.")
                             (fmt
                               "too many 1xx informational responses (max %d)"
                               max-interim))))
-                  (break))
+                  (set! running false))
               (do
                 (set! pending @(Pair.b &pair))
                 (set! skipped (Int.inc skipped))))))
@@ -799,18 +801,20 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
              cur-headers headers
              max-redir @(RequestConfig.max-redirects config)
              remaining max-redir
+             running true
              result (the (Result ResponseStream ClientError)
                          (Result.Error (ClientError.Redirect @"")))]
-      (while-do true
+      (while running
         (match (build-and-send &cur-verb &cur-url @&cur-headers &cur-body config)
-          (Result.Error e) (do (set! result (Result.Error e)) (break))
+          (Result.Error e)
+            (do (set! result (Result.Error e)) (set! running false))
           (Result.Success conn)
             (match (read-headers &conn)
               (Result.Error e)
                 (do
                   (Connection.close conn)
                   (set! result (Result.Error e))
-                  (break))
+                  (set! running false))
               (Result.Success pair)
                 (let [resp @(Pair.a &pair)
                       code @(Response.code &resp)]
@@ -823,7 +827,7 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
                             (set! result
                                   (Result.Error
                                     (ClientError.Redirect @"redirect without Location header")))
-                            (break))
+                            (set! running false))
                         (Maybe.Just location)
                           (let [trimmed (Pattern.trim &location)]
                             (if (String.empty? &trimmed)
@@ -832,7 +836,7 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
                                 (set! result
                                       (Result.Error
                                         (ClientError.Redirect @"redirect with empty Location header")))
-                                (break))
+                                (set! running false))
                               (let-do [new-url (resolve-location &cur-url
                                                                  &trimmed)]
                                 (Connection.close conn)
@@ -853,11 +857,11 @@ to follow. Used by `request`, `request-stream`, and convenience methods.")
                               (Result.Error
                                 (ClientError.Redirect
                                   (fmt "too many redirects (max %d)" max-redir))))
-                        (break)))
+                        (set! running false)))
                     (do
                       (set! result
                             (open-stream conn resp @(Pair.b &pair) &cur-verb))
-                      (break)))))))
+                      (set! running false)))))))
       result))
 
   (doc request-stream-with-max-redirects "sends an HTTP request and returns a
@@ -1109,23 +1113,25 @@ See `RequestConfig` for timeout and redirect details.")
              cur-headers headers
              max-redir @(RequestConfig.max-redirects config)
              remaining max-redir
+             running true
              result (the (Result ResponseStream ClientError)
                          (Result.Error (ClientError.Redirect @"")))]
-      (while-do true
+      (while running
         (let [with-cookies (CookieJar.apply-to-headers jar &cur-url &cur-headers)]
           (match (build-and-send &cur-verb
                                  &cur-url
                                  with-cookies
                                  &cur-body
                                  config)
-            (Result.Error e) (do (set! result (Result.Error e)) (break))
+            (Result.Error e)
+              (do (set! result (Result.Error e)) (set! running false))
             (Result.Success conn)
               (match (read-headers &conn)
                 (Result.Error e)
                   (do
                     (Connection.close conn)
                     (set! result (Result.Error e))
-                    (break))
+                    (set! running false))
                 (Result.Success pair)
                   (let-do [resp @(Pair.a &pair)
                            code @(Response.code &resp)]
@@ -1139,7 +1145,7 @@ See `RequestConfig` for timeout and redirect details.")
                               (set! result
                                     (Result.Error
                                       (ClientError.Redirect @"redirect without Location header")))
-                              (break))
+                              (set! running false))
                           (Maybe.Just location)
                             (let [trimmed (Pattern.trim &location)]
                               (if (String.empty? &trimmed)
@@ -1148,7 +1154,7 @@ See `RequestConfig` for timeout and redirect details.")
                                   (set! result
                                         (Result.Error
                                           (ClientError.Redirect @"redirect with empty Location header")))
-                                  (break))
+                                  (set! running false))
                                 (let-do [new-url (resolve-location &cur-url
                                                                    &trimmed)]
                                   (Connection.close conn)
@@ -1170,11 +1176,11 @@ See `RequestConfig` for timeout and redirect details.")
                                 (Result.Error
                                   (ClientError.Redirect
                                     (fmt "too many redirects (max %d)" max-redir))))
-                          (break)))
+                          (set! running false)))
                       (do
                         (set! result
                               (open-stream conn resp @(Pair.b &pair) &cur-verb))
-                        (break))))))))
+                        (set! running false))))))))
       result))
 
   (doc request-stream-with-jar "sends an HTTP request using the given
