@@ -365,10 +365,10 @@ apart.
   ; chunk-left: -1 before a size line, 0 before a chunk's CRLF, else bytes owed
   (defn poll-chunked [s]
     (let-do [result (Maybe.Nothing)
-             running true]
+             running true
+             len (String.length (buf s))]
       (while running
-        (let [len (String.length (buf s))
-              p @(pos s)
+        (let [p @(pos s)
               left @(chunk-left s)]
           (cond
             (> left 0)
@@ -379,15 +379,19 @@ apart.
                   (set-pos! s (+ p n))
                   (set-chunk-left! s (- left n))
                   (set! running false))
-                (set! running
-                      (fill-or-fail! s
-                                     "malformed chunked body: truncated chunk data")))
-            (= left 0)
-              (cond
-                (< (- len p) 2)
+                (do
                   (set! running
                         (fill-or-fail! s
                                        "malformed chunked body: truncated chunk data"))
+                  (set! len (String.length (buf s)))))
+            (= left 0)
+              (cond
+                (< (- len p) 2)
+                  (do
+                    (set! running
+                          (fill-or-fail! s
+                                         "malformed chunked body: truncated chunk data"))
+                    (set! len (String.length (buf s))))
                 (crlf-at? (buf s) p)
                   (do (set-pos! s (+ p 2)) (set-chunk-left! s -1))
                 (do
@@ -396,11 +400,13 @@ apart.
                   (set! running false)))
             (let [eol (String.find-crlf (buf s) p len)]
               (if (= eol -1)
-                (set! running
-                      (fill-or-fail! s
-                                     (if (< p len)
-                                       "malformed chunked body: unterminated chunk size line"
-                                       "malformed chunked body: missing terminating zero-size chunk")))
+                (do
+                  (set! running
+                        (fill-or-fail! s
+                                       (if (< p len)
+                                         "malformed chunked body: unterminated chunk size line"
+                                         "malformed chunked body: missing terminating zero-size chunk")))
+                  (set! len (String.length (buf s))))
                 (let [line &(String.byte-slice (buf s) p eol)]
                   (match (parse-size-line line)
                     (Maybe.Nothing)

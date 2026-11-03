@@ -941,6 +941,11 @@
     "a close between the CR and the LF after chunk data is an error")
 
   (assert-equal test
+    "200 [hello]"
+    &(status-and-body (Client.get "http://127.0.0.1:8791/chunked-split"))
+    "a size line and a CRLF that arrive in pieces are read whole")
+
+  (assert-equal test
     "malformed chunked body: truncated chunk data"
     &(status-and-body (Client.get "http://127.0.0.1:8791/chunked-oversize"))
     "a chunk size above the old 16 MiB cap is no longer a parse error")
@@ -1085,6 +1090,13 @@
     "receive"
     &(stream-error-kind "http://127.0.0.1:8791/close-short")
     "a body that ends before Content-Length is a Receive error")
+
+  (assert-equal test
+    "receive"
+    &(error-kind
+      (let [cfg (RequestConfig.init 0 1 10)]
+        (Client.get-with-config "http://127.0.0.1:8791/chunked-held-half" &cfg)))
+    "a read timeout mid-chunk stays a Receive error")
 
   (assert-equal test
     "413 [payload too large]"

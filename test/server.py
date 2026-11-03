@@ -229,6 +229,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._chunked_raw(b"5\r\nhelloXX0\r\n\r\n")
         if path == "/chunked-cr-close":
             return self._chunked_raw(b"5\r\nhello\r")
+        # one chunk whose size line and CRLF each arrive in pieces
+        if path == "/chunked-split":
+            self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self._chunked_raw(b"5")
+            for piece in (b"\r\nhello", b"\r", b"\n0\r\n\r\n"):
+                time.sleep(0.05)
+                self.wfile.write(piece)
+            return
         if path == "/chunked-leading-space":
             return self._chunked_raw(b" 5\r\nhello\r\n0\r\n\r\n")
         if path == "/chunked-trailing-space":
