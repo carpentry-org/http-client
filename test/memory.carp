@@ -1,0 +1,53 @@
+(load "Test.carp")
+(load "../http-client.carp")
+
+(use Test)
+
+(defn leaked [f]
+  (let-do [before (Debug.memory-balance)] (f) (- (Debug.memory-balance) before)))
+
+(defn no-headers [] (the (Map String (Array String)) {}))
+
+(defn get-length [] (ignore (Client.get "http://127.0.0.1:8791/get")))
+
+(defn get-chunked [] (ignore (Client.get "http://127.0.0.1:8791/interim-hints")))
+
+(defn follow-redirects []
+  (ignore (Client.get "http://127.0.0.1:8791/redirect/2")))
+
+(defn too-many-redirects []
+  (ignore
+    (Client.request-with-max-redirects "GET"
+                                       "http://127.0.0.1:8791/redirect/3"
+                                       (no-headers)
+                                       ""
+                                       1)))
+
+(defn empty-location []
+  (ignore (Client.get "http://127.0.0.1:8791/redirect-to?url=%20")))
+
+(defn too-many-interim []
+  (ignore (Client.get "http://127.0.0.1:8791/interim-flood/6")))
+
+(defn poll-and-close []
+  (match (Client.request-stream "GET"
+                                "http://127.0.0.1:8791/get"
+                                (no-headers)
+                                "")
+    (Result.Success s)
+      (do (ignore (Client.drain-stream &s)) (ResponseStream.close s))
+    (Result.Error _) ()))
+
+(defn with-jar []
+  (let [jar (CookieJar.create)]
+    (ignore (Client.get-with-jar "http://127.0.0.1:8791/cookies/set/a/1" &jar))))
+
+(deftest test
+  (assert-equal test 0l (leaked get-length) "a Content-Length response")
+  (assert-equal test 0l (leaked get-chunked) "a chunked response after a 103")
+  (assert-equal test 0l (leaked follow-redirects) "a followed redirect")
+  (assert-equal test 0l (leaked too-many-redirects) "too many redirects")
+  (assert-equal test 0l (leaked empty-location) "an empty Location")
+  (assert-equal test 0l (leaked too-many-interim) "too many 1xx responses")
+  (assert-equal test 0l (leaked poll-and-close) "a polled and closed stream")
+  (assert-equal test 0l (leaked with-jar) "a request through a cookie jar"))

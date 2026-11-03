@@ -28,4 +28,7 @@ for port in "$primary" "$other"; do
 done
 
 carp -x "$here/http-client.carp"
-exit $?
+suite=$?
+carp -x --log-memory "$here/memory.carp"
+memory=$?
+exit $((suite || memory))
